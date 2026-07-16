@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var category = MetricCategory.cpu
     @State private var direction = TransferDirection.incoming
     @State private var showsApplications = false
+    @State private var showsSettings = false
 
     private var metric: MetricKind {
         MetricKind(category: category, direction: direction)
@@ -86,6 +87,19 @@ struct ContentView: View {
                 Label("应用", systemImage: showsApplications ? "panel.right.fill" : "panel.right")
             }
             .buttonStyle(.bordered)
+
+            Button {
+                showsSettings.toggle()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .frame(width: 16)
+            }
+            .buttonStyle(.bordered)
+            .help("采样设置")
+            .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
+                SamplingSettingsView()
+                    .environment(store)
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: 48)
@@ -134,6 +148,74 @@ struct ContentView: View {
         store.retentionDuration < 3600
             ? "\(Int(store.retentionDuration / 60)) 分钟"
             : "\(Int(store.retentionDuration / 3600)) 小时"
+    }
+}
+
+private struct SamplingSettingsView: View {
+    @Environment(MonitorStore.self) private var store
+
+    var body: some View {
+        @Bindable var store = store
+
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("采样设置")
+                    .font(.headline)
+                Spacer()
+                Label("仅本次会话", systemImage: "circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.green, .secondary)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
+                GridRow {
+                    Text("采样间隔")
+                        .foregroundStyle(.secondary)
+                    Picker("采样间隔", selection: $store.samplingInterval) {
+                        Text("5 秒").tag(TimeInterval(5))
+                        Text("10 秒").tag(TimeInterval(10))
+                        Text("15 秒").tag(TimeInterval(15))
+                        Text("30 秒").tag(TimeInterval(30))
+                        Text("1 分钟").tag(TimeInterval(60))
+                    }
+                    .labelsHidden()
+                    .frame(width: 126)
+                }
+                GridRow {
+                    Text("保留时长")
+                        .foregroundStyle(.secondary)
+                    Picker("保留时长", selection: $store.retentionDuration) {
+                        Text("15 分钟").tag(TimeInterval(15 * 60))
+                        Text("30 分钟").tag(TimeInterval(30 * 60))
+                        Text("1 小时").tag(TimeInterval(60 * 60))
+                        Text("3 小时").tag(TimeInterval(3 * 60 * 60))
+                    }
+                    .labelsHidden()
+                    .frame(width: 126)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Label(ByteCountFormatter.string(fromByteCount: Int64(store.estimatedStorageBytes), countStyle: .file), systemImage: "memorychip")
+                Spacer()
+                Text("仅存内存")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("清空数据", systemImage: "trash", role: .destructive) {
+                    store.clear()
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 292)
     }
 }
 

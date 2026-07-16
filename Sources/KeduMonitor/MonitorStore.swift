@@ -8,8 +8,22 @@ final class MonitorStore {
     private(set) var isPaused = false
     private(set) var isCollecting = false
     private(set) var errorMessage: String?
-    var samplingInterval: TimeInterval = 15
-    var retentionDuration: TimeInterval = 30 * 60
+    var samplingInterval: TimeInterval = 15 {
+        didSet {
+            guard samplingInterval != oldValue, collectionTask != nil else {
+                return
+            }
+            restartCollection()
+        }
+    }
+    var retentionDuration: TimeInterval = 30 * 60 {
+        didSet {
+            guard retentionDuration != oldValue else {
+                return
+            }
+            trimSnapshots()
+        }
+    }
 
     @ObservationIgnored private let processCollector = ProcessCollector()
     @ObservationIgnored private let networkCollector = NetworkCollector()
@@ -66,6 +80,11 @@ final class MonitorStore {
         snapshots.removeAll(keepingCapacity: true)
     }
 
+    func restartCollection() {
+        stop()
+        start()
+    }
+
     func displaySnapshots(maximumCount: Int = 240) -> [MetricSnapshot] {
         guard snapshots.count > maximumCount, maximumCount > 1 else {
             return snapshots
@@ -94,7 +113,11 @@ final class MonitorStore {
 
     private func append(_ snapshot: MetricSnapshot) {
         snapshots.append(snapshot)
-        let cutoff = snapshot.timestamp.addingTimeInterval(-retentionDuration)
+        trimSnapshots(referenceDate: snapshot.timestamp)
+    }
+
+    private func trimSnapshots(referenceDate: Date = .now) {
+        let cutoff = referenceDate.addingTimeInterval(-retentionDuration)
         if let firstRetainedIndex = snapshots.firstIndex(where: { $0.timestamp >= cutoff }),
            firstRetainedIndex > snapshots.startIndex {
             snapshots.removeFirst(firstRetainedIndex)
