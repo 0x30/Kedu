@@ -13,6 +13,28 @@ struct ApplicationMetrics: Identifiable, Codable, Sendable {
     let memoryBytes: UInt64
     let diskReadBytesPerSecond: Double
     let diskWriteBytesPerSecond: Double
+    let networkDownloadBytesPerSecond: Double
+    let networkUploadBytesPerSecond: Double
+
+    init(
+        identity: ApplicationIdentity,
+        processIDs: [Int32],
+        cpuPercent: Double,
+        memoryBytes: UInt64,
+        diskReadBytesPerSecond: Double,
+        diskWriteBytesPerSecond: Double,
+        networkDownloadBytesPerSecond: Double = 0,
+        networkUploadBytesPerSecond: Double = 0
+    ) {
+        self.identity = identity
+        self.processIDs = processIDs
+        self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes
+        self.diskReadBytesPerSecond = diskReadBytesPerSecond
+        self.diskWriteBytesPerSecond = diskWriteBytesPerSecond
+        self.networkDownloadBytesPerSecond = networkDownloadBytesPerSecond
+        self.networkUploadBytesPerSecond = networkUploadBytesPerSecond
+    }
 
     var id: String { identity.id }
 }
@@ -43,4 +65,38 @@ struct MetricSnapshot: Identifiable, Codable, Sendable {
     var totalDiskWriteBytesPerSecond: Double {
         applications.reduce(0) { $0 + $1.diskWriteBytesPerSecond }
     }
+
+    var totalNetworkDownloadBytesPerSecond: Double {
+        applications.reduce(0) { $0 + $1.networkDownloadBytesPerSecond }
+    }
+
+    var totalNetworkUploadBytesPerSecond: Double {
+        applications.reduce(0) { $0 + $1.networkUploadBytesPerSecond }
+    }
+
+    func merging(networkRates: [ApplicationIdentity: NetworkRates]) -> MetricSnapshot {
+        MetricSnapshot(
+            timestamp: timestamp,
+            applications: applications.map { application in
+                let rates = networkRates[application.identity] ?? .zero
+                return ApplicationMetrics(
+                    identity: application.identity,
+                    processIDs: application.processIDs,
+                    cpuPercent: application.cpuPercent,
+                    memoryBytes: application.memoryBytes,
+                    diskReadBytesPerSecond: application.diskReadBytesPerSecond,
+                    diskWriteBytesPerSecond: application.diskWriteBytesPerSecond,
+                    networkDownloadBytesPerSecond: rates.downloadBytesPerSecond,
+                    networkUploadBytesPerSecond: rates.uploadBytesPerSecond
+                )
+            }
+        )
+    }
+}
+
+struct NetworkRates: Codable, Sendable {
+    static let zero = NetworkRates(downloadBytesPerSecond: 0, uploadBytesPerSecond: 0)
+
+    var downloadBytesPerSecond: Double
+    var uploadBytesPerSecond: Double
 }
