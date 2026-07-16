@@ -75,7 +75,7 @@ struct StackedMetricChart: View {
         let observed = snapshots.map { metric.total(in: $0) }.max() ?? 0
         switch metric {
         case .cpu:
-            return max(25, min(100, Self.niceMaximum(observed * 1.12)))
+            return max(1, min(100, Self.niceMaximum(observed * 1.2)))
         case .memory:
             return max(1, Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824)
         case .diskRead, .diskWrite, .networkDownload, .networkUpload:
