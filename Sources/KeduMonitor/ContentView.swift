@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -153,6 +154,7 @@ struct ContentView: View {
 
 private struct SamplingSettingsView: View {
     @Environment(MonitorStore.self) private var store
+    @State private var exportError: String?
 
     var body: some View {
         @Bindable var store = store
@@ -208,14 +210,43 @@ private struct SamplingSettingsView: View {
             .foregroundStyle(.secondary)
 
             HStack {
+                Button("导出数据", systemImage: "square.and.arrow.down") {
+                    exportSession()
+                }
+                .disabled(store.snapshots.isEmpty)
+
                 Spacer()
                 Button("清空数据", systemImage: "trash", role: .destructive) {
                     store.clear()
                 }
+                .disabled(store.snapshots.isEmpty)
+            }
+
+            if let exportError {
+                Text(exportError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
         .padding(16)
         .frame(width: 292)
+    }
+
+    private func exportSession() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "刻度-\(Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash)))-会话.csv"
+        panel.message = "导出当前内存中的监控数据"
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        do {
+            try SessionExporter.csvData(for: store.snapshots).write(to: url, options: .atomic)
+            exportError = nil
+        } catch {
+            exportError = "导出失败：\(error.localizedDescription)"
+        }
     }
 }
 
