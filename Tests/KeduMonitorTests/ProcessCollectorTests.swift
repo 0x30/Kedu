@@ -1,0 +1,29 @@
+import Testing
+@testable import KeduMonitor
+
+@Suite("ProcessCollector")
+struct ProcessCollectorTests {
+    @Test("samples running processes")
+    func samplesRunningProcesses() async {
+        let snapshot = await ProcessCollector().sample()
+        #expect(!snapshot.applications.isEmpty)
+        #expect(snapshot.totalMemoryBytes > 0)
+    }
+
+    @Test("extracts the outermost app bundle")
+    func extractsAppRoot() {
+        let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"
+        #expect(ProcessCollector.appRootPath(for: helper) == "/Applications/Google Chrome.app")
+    }
+
+    @Test("ignores executables outside app bundles")
+    func ignoresNonAppPath() {
+        #expect(ProcessCollector.appRootPath(for: "/usr/libexec/WindowServer") == nil)
+    }
+
+    @Test("counter reset does not underflow")
+    func handlesCounterReset() {
+        #expect(ProcessCollector.positiveDelta(4, 9) == 0)
+        #expect(ProcessCollector.positiveDelta(12, 9) == 3)
+    }
+}

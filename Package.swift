@@ -12,5 +12,9 @@ let package = Package(
     ],
     targets: [
         .executableTarget(name: "KeduMonitor"),
+        .testTarget(
+            name: "KeduMonitorTests",
+            dependencies: ["KeduMonitor"]
+        ),
     ]
 )
