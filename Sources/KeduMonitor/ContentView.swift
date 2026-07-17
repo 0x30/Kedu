@@ -69,33 +69,7 @@ struct ContentView: View {
     }
 
     private var chartContent: some View {
-        VStack(spacing: 4) {
-            HStack(alignment: .center, spacing: 8) {
-                Text("\(retentionLabel) · \(intervalLabel)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-
-                if category == .disk || category == .network {
-                    Picker("方向", selection: $direction) {
-                        Image(systemName: "arrow.down").tag(TransferDirection.incoming)
-                        Image(systemName: "arrow.up").tag(TransferDirection.outgoing)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 72)
-                    .help(category == .network ? "下载 / 上传" : "读取 / 写入")
-                }
-
-                Spacer()
-
-                if store.errorMessage != nil {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                        .help(store.errorMessage ?? "")
-                }
-
-            }
-
+        ZStack(alignment: .topTrailing) {
             StackedMetricChart(
                 snapshots: store.displaySnapshots(),
                 metric: metric,
@@ -105,23 +79,29 @@ struct ContentView: View {
                 }
             )
             .frame(maxHeight: .infinity)
+
+            HStack(spacing: 6) {
+                if category == .disk || category == .network {
+                    Picker("方向", selection: $direction) {
+                        Image(systemName: "arrow.down").tag(TransferDirection.incoming)
+                        Image(systemName: "arrow.up").tag(TransferDirection.outgoing)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 68)
+                    .help(category == .network ? "下载 / 上传" : "读取 / 写入")
+                }
+                if store.errorMessage != nil {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .help(store.errorMessage ?? "")
+                }
+            }
+            .padding(5)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 4)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
         .background(.ultraThinMaterial)
-    }
-
-    private var intervalLabel: String {
-        store.samplingInterval < 60
-            ? "\(Int(store.samplingInterval)) 秒"
-            : "\(Int(store.samplingInterval / 60)) 分钟"
-    }
-
-    private var retentionLabel: String {
-        store.retentionDuration < 3600
-            ? "\(Int(store.retentionDuration / 60)) 分钟"
-            : "\(Int(store.retentionDuration / 3600)) 小时"
     }
 }
 
