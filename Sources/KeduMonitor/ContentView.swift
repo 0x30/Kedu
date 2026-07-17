@@ -136,7 +136,7 @@ struct ContentView: View {
     }
 }
 
-private struct SamplingSettingsView: View {
+struct SamplingSettingsView: View {
     @Environment(MonitorStore.self) private var store
     @State private var exportError: String?
 
