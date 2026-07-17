@@ -46,15 +46,11 @@ struct ContentView: View {
     }
 
     private var chartContent: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 7) {
             HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(metric.title)
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("最近 \(retentionLabel) · 每 \(intervalLabel)采样")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("\(retentionLabel) · \(intervalLabel)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
 
                 if category == .disk || category == .network {
                     Picker("方向", selection: $direction) {
@@ -68,9 +64,6 @@ struct ContentView: View {
                 }
 
                 Spacer()
-
-                Text(metric.formatted(store.latestSnapshot.map(metric.total(in:)) ?? 0))
-                    .font(.system(.title3, design: .monospaced, weight: .semibold))
 
                 if store.errorMessage != nil {
                     Image(systemName: "exclamationmark.triangle")
@@ -117,9 +110,9 @@ struct ContentView: View {
             )
             .frame(maxHeight: .infinity)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 13)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 

@@ -34,7 +34,6 @@ struct ChartRenderDataTests {
 
         #expect(renderData.series.count == 8)
         #expect(renderData.series.allSatisfy { $0.values.count == 360 })
-        #expect(renderData.dominanceColors.count == 360)
         #expect(elapsed < .seconds(1))
     }
 }

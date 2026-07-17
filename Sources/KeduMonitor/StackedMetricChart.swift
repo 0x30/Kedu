@@ -11,8 +11,8 @@ struct StackedMetricChart: View {
 
     private let leftInset: CGFloat = 42
     private let rightInset: CGFloat = 8
-    private let topInset: CGFloat = 8
-    private let bottomInset: CGFloat = 24
+    private let topInset: CGFloat = 3
+    private let bottomInset: CGFloat = 19
 
     init(
         snapshots: [MetricSnapshot],
@@ -26,7 +26,9 @@ struct StackedMetricChart: View {
     }
 
     var body: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 6) {
+            ChartLegend(series: renderData.series)
+
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
                     Canvas { context, size in
@@ -70,16 +72,6 @@ struct StackedMetricChart: View {
                 .clipped()
             }
             .frame(minHeight: 250)
-
-            HStack(spacing: 8) {
-                Text("最高")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, alignment: .trailing)
-                DominanceStrip(colors: renderData.dominanceColors)
-                    .frame(height: 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-            }
         }
     }
 
@@ -314,47 +306,50 @@ struct ChartSeries: Identifiable {
 struct ChartRenderData {
     let series: [ChartSeries]
     let maximum: Double
-    let dominanceColors: [Color]
 
     @MainActor
     static func make(from snapshots: [MetricSnapshot], metric: MetricKind) -> ChartRenderData {
         ChartRenderData(
             series: ChartSeries.make(from: snapshots, metric: metric),
-            maximum: StackedMetricChart.maximumYValue(for: snapshots, metric: metric),
-            dominanceColors: snapshots.map { snapshot in
-                guard let application = snapshot.applications.max(by: {
-                    metric.value(for: $0) < metric.value(for: $1)
-                }) else {
-                    return Color.clear
-                }
-                return ApplicationPalette.color(for: application.identity)
-            }
+            maximum: StackedMetricChart.maximumYValue(for: snapshots, metric: metric)
         )
     }
 }
 
-private struct DominanceStrip: View {
-    let colors: [Color]
+private struct ChartLegend: View {
+    let series: [ChartSeries]
 
     var body: some View {
-        Canvas { context, size in
-            guard !colors.isEmpty else {
-                return
-            }
-            let width = size.width / CGFloat(colors.count)
-            for (index, color) in colors.enumerated() {
-                context.fill(
-                    Path(CGRect(
-                        x: CGFloat(index) * width,
-                        y: 0,
-                        width: ceil(width) + 0.5,
-                        height: size.height
-                    )),
-                    with: .color(color)
-                )
+        ScrollView(.horizontal) {
+            HStack(spacing: 13) {
+                ForEach(series) { item in
+                    HStack(spacing: 5) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(ApplicationPalette.color(for: item.identity))
+                            .frame(width: 8, height: 8)
+                        Text(item.identity.name)
+                            .lineLimit(1)
+                        Text(share(for: item), format: .percent.precision(.fractionLength(0)))
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.caption2)
+                }
             }
         }
-        .background(Color.secondary.opacity(0.12))
+        .scrollIndicators(.hidden)
+        .frame(height: 18)
+    }
+
+    private var currentTotal: Double {
+        series.reduce(0) { $0 + ($1.values.last ?? 0) }
+    }
+
+    private func share(for item: ChartSeries) -> Double {
+        guard currentTotal > 0 else {
+            return 0
+        }
+        return (item.values.last ?? 0) / currentTotal
     }
 }
 
@@ -370,6 +365,9 @@ private struct MetricTooltip: View {
             ForEach(sortedApplications.prefix(5)) { application in
                 HStack(spacing: 7) {
                     ApplicationIconView(identity: application.identity, size: 20)
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(ApplicationPalette.color(for: application.identity))
+                        .frame(width: 6, height: 14)
                     Text(application.identity.name)
                         .font(.caption)
                         .lineLimit(1)
