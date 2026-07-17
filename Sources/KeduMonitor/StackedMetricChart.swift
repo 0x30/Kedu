@@ -4,6 +4,7 @@ import SwiftUI
 struct StackedMetricChart: View {
     let snapshots: [MetricSnapshot]
     let metric: MetricKind
+    let onSelectSnapshot: (MetricSnapshot) -> Void
     private let renderData: ChartRenderData
 
     @State private var selectedIndex: Int?
@@ -13,9 +14,14 @@ struct StackedMetricChart: View {
     private let topInset: CGFloat = 8
     private let bottomInset: CGFloat = 24
 
-    init(snapshots: [MetricSnapshot], metric: MetricKind) {
+    init(
+        snapshots: [MetricSnapshot],
+        metric: MetricKind,
+        onSelectSnapshot: @escaping (MetricSnapshot) -> Void
+    ) {
         self.snapshots = snapshots
         self.metric = metric
+        self.onSelectSnapshot = onSelectSnapshot
         renderData = ChartRenderData.make(from: snapshots, metric: metric)
     }
 
@@ -34,6 +40,12 @@ struct StackedMetricChart: View {
                         case .ended:
                             selectedIndex = nil
                         }
+                    }
+                    .onTapGesture {
+                        guard let selectedIndex, snapshots.indices.contains(selectedIndex) else {
+                            return
+                        }
+                        onSelectSnapshot(snapshots[selectedIndex])
                     }
 
                     if let selectedIndex,

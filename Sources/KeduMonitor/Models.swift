@@ -161,7 +161,7 @@ struct MetricSnapshot: Identifiable, Codable, Sendable {
                 ApplicationMetrics(
                     identity: application.identity,
                     processIDs: application.processIDs,
-                    processes: [],
+                    processes: application.processes,
                     cpuPercent: application.cpuPercent,
                     memoryBytes: application.memoryBytes,
                     diskReadBytesPerSecond: application.diskReadBytesPerSecond,

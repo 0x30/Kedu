@@ -4,13 +4,13 @@ import Testing
 
 @Suite("MonitorStore")
 struct MonitorStoreTests {
-    @Test("history compaction keeps application totals and process IDs")
+    @Test("history compaction keeps application totals and process samples")
     func compactsHistory() {
         let snapshot = makeSnapshot(index: 0, includesProcess: true)
         let compacted = snapshot.compactedForHistory()
 
         #expect(compacted.applications[0].processIDs == [42])
-        #expect(compacted.applications[0].processes.isEmpty)
+        #expect(compacted.applications[0].processes.map(\.pid) == [42])
         #expect(compacted.totalCPUPercent == snapshot.totalCPUPercent)
         #expect(compacted.totalMemoryBytes == snapshot.totalMemoryBytes)
     }

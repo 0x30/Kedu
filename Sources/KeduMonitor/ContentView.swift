@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var category = MetricCategory.cpu
     @State private var direction = TransferDirection.incoming
     @State private var showsApplications = false
+    @State private var inspectedSnapshot: MetricSnapshot?
     @State private var showsSettings = false
 
     private var metric: MetricKind {
@@ -27,9 +28,14 @@ struct ContentView: View {
                     .transition(.opacity)
 
                 ApplicationDrawer(
-                    snapshot: store.latestSnapshot,
+                    snapshot: inspectedSnapshot ?? store.latestSnapshot,
                     metric: metric,
-                    onClose: { showsApplications = false }
+                    isHistorical: inspectedSnapshot != nil,
+                    onShowLive: { inspectedSnapshot = nil },
+                    onClose: {
+                        inspectedSnapshot = nil
+                        showsApplications = false
+                    }
                 )
                 .frame(width: 282)
                 .transition(.move(edge: .trailing))
@@ -81,7 +87,10 @@ struct ContentView: View {
                 iconButton(
                     showsApplications ? "sidebar.right" : "sidebar.right",
                     help: "应用",
-                    action: { showsApplications.toggle() }
+                    action: {
+                        inspectedSnapshot = nil
+                        showsApplications.toggle()
+                    }
                 )
 
                 Button {
@@ -100,7 +109,11 @@ struct ContentView: View {
 
             StackedMetricChart(
                 snapshots: store.displaySnapshots(),
-                metric: metric
+                metric: metric,
+                onSelectSnapshot: { snapshot in
+                    inspectedSnapshot = snapshot
+                    showsApplications = true
+                }
             )
             .frame(maxHeight: .infinity)
         }
@@ -323,6 +336,8 @@ private struct SummaryStrip: View {
 private struct ApplicationDrawer: View {
     let snapshot: MetricSnapshot?
     let metric: MetricKind
+    let isHistorical: Bool
+    let onShowLive: () -> Void
     let onClose: () -> Void
     @State private var displayMode = ApplicationDisplayMode.value
 
@@ -332,11 +347,18 @@ private struct ApplicationDrawer: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("应用")
                         .font(.headline)
-                    Text(displayMode == .value ? metric.title : "占当前总量")
+                    Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if isHistorical {
+                    Button(action: onShowLive) {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("返回当前时刻")
+                }
                 Picker("显示方式", selection: $displayMode) {
                     Image(systemName: "number").tag(ApplicationDisplayMode.value)
                     Image(systemName: "percent").tag(ApplicationDisplayMode.share)
@@ -385,6 +407,13 @@ private struct ApplicationDrawer: View {
 
     private var total: Double {
         snapshot.map(metric.total(in:)) ?? 0
+    }
+
+    private var subtitle: String {
+        if isHistorical, let timestamp = snapshot?.timestamp {
+            return timestamp.formatted(.dateTime.hour().minute().second())
+        }
+        return displayMode == .value ? metric.title : "占当前总量"
     }
 }
 
