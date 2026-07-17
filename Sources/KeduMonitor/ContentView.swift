@@ -318,6 +318,7 @@ private struct ApplicationDrawer: View {
     let snapshot: MetricSnapshot?
     let metric: MetricKind
     let onClose: () -> Void
+    @State private var displayMode = ApplicationDisplayMode.value
 
     var body: some View {
         VStack(spacing: 0) {
@@ -325,11 +326,19 @@ private struct ApplicationDrawer: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("应用")
                         .font(.headline)
-                    Text("按当前\(metric.title)排序")
+                    Text(displayMode == .value ? metric.title : "占当前总量")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Picker("显示方式", selection: $displayMode) {
+                    Image(systemName: "number").tag(ApplicationDisplayMode.value)
+                    Image(systemName: "percent").tag(ApplicationDisplayMode.share)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 62)
+                .help("实际值 / 当前总量占比")
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                 }
@@ -347,7 +356,8 @@ private struct ApplicationDrawer: View {
                         ApplicationRow(
                             application: application,
                             metric: metric,
-                            total: total
+                            total: total,
+                            displayMode: displayMode
                         )
                         Divider().padding(.leading, 56)
                     }
@@ -376,6 +386,7 @@ private struct ApplicationRow: View {
     let application: ApplicationMetrics
     let metric: MetricKind
     let total: Double
+    let displayMode: ApplicationDisplayMode
     @State private var isExpanded = false
 
     var body: some View {
@@ -409,7 +420,7 @@ private struct ApplicationRow: View {
                         .frame(height: 3)
                     }
                     Spacer(minLength: 4)
-                    Text(metric.formatted(value))
+                    Text(displayValue(value))
                         .font(.caption.monospacedDigit())
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
@@ -436,7 +447,7 @@ private struct ApplicationRow: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             Spacer(minLength: 4)
-                            Text(metric.formatted(metric.value(for: process)))
+                            Text(displayValue(metric.value(for: process)))
                                 .font(.caption2.monospacedDigit())
                         }
                         .padding(.leading, 17)
@@ -463,4 +474,18 @@ private struct ApplicationRow: View {
             metric.value(for: $0) > metric.value(for: $1)
         }
     }
+
+    private func displayValue(_ value: Double) -> String {
+        switch displayMode {
+        case .value:
+            metric.formatted(value)
+        case .share:
+            total > 0 ? String(format: "%.0f%%", value / total * 100) : "0%"
+        }
+    }
+}
+
+private enum ApplicationDisplayMode: Hashable {
+    case value
+    case share
 }
