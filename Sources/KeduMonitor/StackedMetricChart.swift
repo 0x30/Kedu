@@ -9,10 +9,10 @@ struct StackedMetricChart: View {
 
     @State private var selectedIndex: Int?
 
-    private let leftInset: CGFloat = 6
+    private let leftInset: CGFloat = 24
     private let rightInset: CGFloat = 6
     private let topInset: CGFloat = 4
-    private let bottomInset: CGFloat = 6
+    private let bottomInset: CGFloat = 17
 
     init(
         snapshots: [MetricSnapshot],
@@ -102,6 +102,7 @@ struct StackedMetricChart: View {
             series: renderData.series,
             maximum: renderData.maximum
         )
+        drawAxisLabels(context: context, plot: plot, maximum: renderData.maximum)
         if let selectedIndex, snapshots.indices.contains(selectedIndex) {
             let x = xPosition(for: selectedIndex, in: plot)
             var line = Path()
@@ -127,6 +128,31 @@ struct StackedMetricChart: View {
                 with: .color(Color.secondary.opacity(tick == 0 ? 0.24 : 0.13)),
                 lineWidth: 1
             )
+        }
+    }
+
+    private func drawAxisLabels(context: GraphicsContext, plot: CGRect, maximum: Double) {
+        let labelFont = Font.system(size: 8, design: .rounded)
+        for tick in 0...4 {
+            let fraction = Double(tick) / 4
+            let value = maximum * fraction
+            let y = plot.maxY - plot.height * CGFloat(fraction)
+            let label = Text(metric.axisLabel(value))
+                .font(labelFont)
+                .foregroundStyle(Color.secondary.opacity(0.46))
+            context.draw(label, at: CGPoint(x: plot.minX - 5, y: y), anchor: .trailing)
+        }
+
+        guard snapshots.count > 1 else {
+            return
+        }
+        let indexes = [0, (snapshots.count - 1) / 2, snapshots.count - 1]
+        for (position, index) in indexes.enumerated() {
+            let label = Text(snapshots[index].timestamp.formatted(.dateTime.hour().minute()))
+                .font(labelFont)
+                .foregroundStyle(Color.secondary.opacity(0.46))
+            let anchor: UnitPoint = position == 0 ? .topLeading : position == 2 ? .topTrailing : .top
+            context.draw(label, at: CGPoint(x: xPosition(for: index, in: plot), y: plot.maxY + 5), anchor: anchor)
         }
     }
 
