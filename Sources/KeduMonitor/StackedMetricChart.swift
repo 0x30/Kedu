@@ -77,11 +77,11 @@ struct StackedMetricChart: View {
         let observed = snapshots.map { metric.total(in: $0) }.max() ?? 0
         switch metric {
         case .cpu:
-            return max(1, Self.niceMaximum(observed * 1.2))
+            return max(1, Self.adaptiveMaximum(observed * 1.06))
         case .memory:
-            return max(1, Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824)
+            return max(1, Self.adaptiveMaximum(observed * 1.06))
         case .diskRead, .diskWrite, .networkDownload, .networkUpload:
-            return max(0.1, Self.niceMaximum(observed * 1.12))
+            return max(0.1, Self.adaptiveMaximum(observed * 1.06))
         }
     }
 
@@ -247,14 +247,15 @@ struct StackedMetricChart: View {
         plot.maxY - plot.height * CGFloat(min(1, max(0, value / maximum)))
     }
 
-    private static func niceMaximum(_ value: Double) -> Double {
+    private static func adaptiveMaximum(_ value: Double) -> Double {
         guard value > 0 else {
             return 1
         }
         let exponent = floor(log10(value))
         let scale = pow(10, exponent)
         let fraction = value / scale
-        let rounded = fraction <= 1 ? 1.0 : fraction <= 2 ? 2.0 : fraction <= 5 ? 5.0 : 10.0
+        let steps = [1.0, 1.2, 1.5, 1.8, 2.0, 2.2, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        let rounded = steps.first(where: { $0 >= fraction }) ?? 10
         return rounded * scale
     }
 }
