@@ -16,7 +16,13 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             VStack(spacing: 0) {
-                SummaryStrip(snapshot: store.latestSnapshot, selection: $category)
+                SummaryStrip(
+                    snapshot: store.latestSnapshot,
+                    selection: $category,
+                    showsApplications: $showsApplications,
+                    showsSettings: $showsSettings,
+                    onClearInspection: { inspectedSnapshot = nil }
+                )
                 Divider()
                 chartContent
             }
@@ -46,14 +52,6 @@ struct ContentView: View {
                 .ignoresSafeArea()
         }
         .animation(.easeOut(duration: 0.18), value: showsApplications)
-        .onExitCommand {
-            if showsApplications {
-                inspectedSnapshot = nil
-                showsApplications = false
-            } else if showsSettings {
-                showsSettings = false
-            }
-        }
     }
 
     private var chartContent: some View {
@@ -82,33 +80,6 @@ struct ContentView: View {
                         .help(store.errorMessage ?? "")
                 }
 
-                iconButton(
-                    store.isPaused ? "play.fill" : "pause.fill",
-                    help: store.isPaused ? "继续采样" : "暂停采样",
-                    action: store.togglePause
-                )
-
-                iconButton(
-                    showsApplications ? "sidebar.right" : "sidebar.right",
-                    help: "应用",
-                    action: {
-                        inspectedSnapshot = nil
-                        showsApplications.toggle()
-                    }
-                )
-
-                Button {
-                    showsSettings.toggle()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.borderless)
-                .help("采样设置")
-                .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
-                    SamplingSettingsView()
-                        .environment(store)
-                }
             }
 
             StackedMetricChart(
@@ -125,19 +96,6 @@ struct ContentView: View {
         .padding(.top, 4)
         .padding(.bottom, 4)
         .background(.ultraThinMaterial)
-    }
-
-    private func iconButton(
-        _ systemName: String,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .frame(width: 16, height: 16)
-        }
-        .buttonStyle(.borderless)
-        .help(help)
     }
 
     private var intervalLabel: String {
@@ -262,6 +220,10 @@ struct SamplingSettingsView: View {
 private struct SummaryStrip: View {
     let snapshot: MetricSnapshot?
     @Binding var selection: MetricCategory
+    @Binding var showsApplications: Bool
+    @Binding var showsSettings: Bool
+    let onClearInspection: () -> Void
+    @Environment(MonitorStore.self) private var store
 
     var body: some View {
         HStack(spacing: 0) {
@@ -287,7 +249,30 @@ private struct SummaryStrip: View {
                 value: String(format: "%.1f", networkTotal),
                 unit: "MB/s"
             )
+            Divider()
+            Button {
+                onClearInspection()
+                showsApplications.toggle()
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.borderless)
+            .help("应用")
+            Button {
+                showsSettings.toggle()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.borderless)
+            .help("采样设置")
+            .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
+                SamplingSettingsView()
+                    .environment(store)
+            }
         }
+        .padding(.horizontal, 9)
         .frame(height: 50)
         .background(.thinMaterial)
     }
