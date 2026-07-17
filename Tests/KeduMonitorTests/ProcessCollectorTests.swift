@@ -8,6 +8,10 @@ struct ProcessCollectorTests {
         let snapshot = await ProcessCollector().sample()
         #expect(!snapshot.applications.isEmpty)
         #expect(snapshot.totalMemoryBytes > 0)
+        #expect(snapshot.applications.allSatisfy { !$0.processes.isEmpty })
+        #expect(snapshot.applications.allSatisfy { application in
+            application.memoryBytes == application.processes.reduce(0) { $0 + $1.memoryBytes }
+        })
     }
 
     @Test("extracts the outermost app bundle")

@@ -28,7 +28,7 @@ actor NetworkCollector {
 
     func sampleRates(
         groupedBy identitiesByPID: [pid_t: ApplicationIdentity]
-    ) throws -> [ApplicationIdentity: NetworkRates] {
+    ) throws -> ApplicationNetworkRates {
         let currentFrame = try captureProcessCounters()
         let now = clock.now
         defer {
@@ -36,22 +36,24 @@ actor NetworkCollector {
             previousFrameTime = now
         }
         guard let previousFrameTime else {
-            return [:]
+            return ApplicationNetworkRates(totals: [:], byPID: [:])
         }
 
         let elapsed = seconds(from: previousFrameTime, to: now)
         var grouped: [ApplicationIdentity: NetworkRates] = [:]
+        var byPID: [Int32: NetworkRates] = [:]
         for (pid, current) in currentFrame {
             guard let previous = previousFrame[pid], let identity = identitiesByPID[pid] else {
                 continue
             }
             let rates = Self.rates(current: current, previous: previous, elapsed: elapsed)
+            byPID[pid] = rates
             var aggregate = grouped[identity, default: .zero]
             aggregate.downloadBytesPerSecond += rates.downloadBytesPerSecond
             aggregate.uploadBytesPerSecond += rates.uploadBytesPerSecond
             grouped[identity] = aggregate
         }
-        return grouped
+        return ApplicationNetworkRates(totals: grouped, byPID: byPID)
     }
 
     func captureProcessCounters() throws -> [pid_t: Counters] {

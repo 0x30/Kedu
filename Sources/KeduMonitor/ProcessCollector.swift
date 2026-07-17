@@ -18,7 +18,7 @@ actor ProcessCollector {
     }
 
     private struct Aggregate {
-        var processIDs: [Int32] = []
+        var processes: [ProcessMetrics] = []
         var cpuPercent = 0.0
         var memoryBytes: UInt64 = 0
         var diskReadBytesPerSecond = 0.0
@@ -45,18 +45,35 @@ actor ProcessCollector {
             identitiesByPID[record.pid] = identity
 
             var aggregate = aggregates[identity, default: Aggregate()]
-            aggregate.processIDs.append(record.pid)
             aggregate.memoryBytes &+= record.counters.memoryBytes
+
+            var cpuPercent = 0.0
+            var diskReadBytesPerSecond = 0.0
+            var diskWriteBytesPerSecond = 0.0
 
             if let previous = previousCounters[record.pid], let elapsed {
                 let cpuDelta = Self.positiveDelta(record.counters.cpuNanoseconds, previous.cpuNanoseconds)
                 let readDelta = Self.positiveDelta(record.counters.diskReadBytes, previous.diskReadBytes)
                 let writeDelta = Self.positiveDelta(record.counters.diskWriteBytes, previous.diskWriteBytes)
-                aggregate.cpuPercent += Double(cpuDelta) / 1_000_000_000 / elapsed
+                cpuPercent = Double(cpuDelta) / 1_000_000_000 / elapsed
                     / Double(processorCount) * 100
-                aggregate.diskReadBytesPerSecond += Double(readDelta) / elapsed
-                aggregate.diskWriteBytesPerSecond += Double(writeDelta) / elapsed
+                diskReadBytesPerSecond = Double(readDelta) / elapsed
+                diskWriteBytesPerSecond = Double(writeDelta) / elapsed
             }
+
+            aggregate.cpuPercent += cpuPercent
+            aggregate.diskReadBytesPerSecond += diskReadBytesPerSecond
+            aggregate.diskWriteBytesPerSecond += diskWriteBytesPerSecond
+            aggregate.processes.append(ProcessMetrics(
+                pid: record.pid,
+                name: record.name,
+                cpuPercent: cpuPercent,
+                memoryBytes: record.counters.memoryBytes,
+                diskReadBytesPerSecond: diskReadBytesPerSecond,
+                diskWriteBytesPerSecond: diskWriteBytesPerSecond,
+                networkDownloadBytesPerSecond: 0,
+                networkUploadBytesPerSecond: 0
+            ))
 
             aggregates[identity] = aggregate
         }
@@ -68,7 +85,13 @@ actor ProcessCollector {
         let applications = aggregates.map { identity, aggregate in
             ApplicationMetrics(
                 identity: identity,
-                processIDs: aggregate.processIDs.sorted(),
+                processIDs: aggregate.processes.map(\.pid),
+                processes: aggregate.processes.sorted { left, right in
+                    if left.cpuPercent == right.cpuPercent {
+                        return left.memoryBytes > right.memoryBytes
+                    }
+                    return left.cpuPercent > right.cpuPercent
+                },
                 cpuPercent: aggregate.cpuPercent,
                 memoryBytes: aggregate.memoryBytes,
                 diskReadBytesPerSecond: aggregate.diskReadBytesPerSecond,

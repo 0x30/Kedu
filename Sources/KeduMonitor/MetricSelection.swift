@@ -82,6 +82,23 @@ enum MetricKind: Sendable {
         }
     }
 
+    func value(for process: ProcessMetrics) -> Double {
+        switch self {
+        case .cpu:
+            process.cpuPercent
+        case .memory:
+            Double(process.memoryBytes) / 1_073_741_824
+        case .diskRead:
+            process.diskReadBytesPerSecond / 1_048_576
+        case .diskWrite:
+            process.diskWriteBytesPerSecond / 1_048_576
+        case .networkDownload:
+            process.networkDownloadBytesPerSecond / 1_048_576
+        case .networkUpload:
+            process.networkUploadBytesPerSecond / 1_048_576
+        }
+    }
+
     func total(in snapshot: MetricSnapshot) -> Double {
         snapshot.applications.reduce(0) { $0 + value(for: $1) }
     }

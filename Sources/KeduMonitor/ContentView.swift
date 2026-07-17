@@ -376,35 +376,78 @@ private struct ApplicationRow: View {
     let application: ApplicationMetrics
     let metric: MetricKind
     let total: Double
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            ApplicationIconView(identity: application.identity, size: 32)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(application.identity.name)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.secondary.opacity(0.13))
-                        Capsule()
-                            .fill(ApplicationPalette.color(for: application.identity))
-                            .frame(width: geometry.size.width * fraction)
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    ApplicationIconView(identity: application.identity, size: 30)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 5) {
+                            Text(application.identity.name)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            if application.processes.count > 1 {
+                                Text("\(application.processes.count)")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.secondary.opacity(0.13))
+                                Capsule()
+                                    .fill(ApplicationPalette.color(for: application.identity))
+                                    .frame(width: geometry.size.width * fraction)
+                            }
+                        }
+                        .frame(height: 3)
+                    }
+                    Spacer(minLength: 4)
+                    Text(metric.formatted(value))
+                        .font(.caption.monospacedDigit())
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 9)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(sortedProcesses) { process in
+                        HStack(spacing: 7) {
+                            Text("\(process.pid)")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 38, alignment: .trailing)
+                            Text(process.name)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(metric.formatted(metric.value(for: process)))
+                                .font(.caption2.monospacedDigit())
+                        }
+                        .padding(.leading, 17)
+                        .padding(.trailing, 32)
+                        .frame(height: 29)
                     }
                 }
-                .frame(height: 3)
-            }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(metric.formatted(value))
-                    .font(.caption.monospacedDigit())
-                Text("\(Int((fraction * 100).rounded()))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                .padding(.bottom, 5)
+                .background(Color.primary.opacity(0.025))
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 58)
     }
 
     private var value: Double {
@@ -413,5 +456,11 @@ private struct ApplicationRow: View {
 
     private var fraction: Double {
         total > 0 ? min(1, value / total) : 0
+    }
+
+    private var sortedProcesses: [ProcessMetrics] {
+        application.processes.sorted {
+            metric.value(for: $0) > metric.value(for: $1)
+        }
     }
 }
