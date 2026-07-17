@@ -40,6 +40,13 @@ private struct MenuBarLauncher: View {
                 MenuMetricValue(title: "CPU", value: cpuValue, color: .cyan)
                 MenuMetricValue(title: "内存", value: memoryValue, color: .orange)
                 Spacer(minLength: 0)
+                Button(action: openMainWindow) {
+                    Image(systemName: "macwindow")
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("打开主窗口")
                 Button {
                     showsSettings.toggle()
                 } label: {
