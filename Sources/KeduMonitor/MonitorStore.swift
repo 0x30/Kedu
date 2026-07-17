@@ -8,7 +8,7 @@ final class MonitorStore {
     private(set) var isPaused = false
     private(set) var isCollecting = false
     private(set) var errorMessage: String?
-    var samplingInterval: TimeInterval = 15 {
+    var samplingInterval: TimeInterval = 5 {
         didSet {
             guard samplingInterval != oldValue, collectionTask != nil else {
                 return
