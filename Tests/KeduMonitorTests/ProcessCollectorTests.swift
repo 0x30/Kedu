@@ -15,6 +15,31 @@ struct ProcessCollectorTests {
         })
     }
 
+    @Test("detects a process holding a deleted working directory", .timeLimit(.minutes(1)))
+    func detectsDeletedWorkingDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "kedu-stale-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        process.currentDirectoryURL = directory
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        try FileManager.default.removeItem(at: directory)
+        try await Task.sleep(for: .milliseconds(100))
+        let staleProcesses = await ProcessCollector().staleWorkingDirectoryProcesses()
+
+        #expect(staleProcesses.contains { $0.pid == process.processIdentifier })
+    }
+
     @Test("extracts the outermost app bundle")
     func extractsAppRoot() {
         let helper = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"

@@ -99,6 +99,14 @@ final class MonitorStore {
         await processCollector.processDetails(for: pid)
     }
 
+    func staleWorkingDirectoryProcesses() async -> [StaleProcess] {
+        await processCollector.staleWorkingDirectoryProcesses()
+    }
+
+    func terminateProcess(_ pid: Int32) async -> String? {
+        await processCollector.terminateProcess(pid)
+    }
+
     private func capture() async {
         isCollecting = true
         let processSnapshot = await processCollector.sample()

@@ -41,6 +41,16 @@ struct ProcessDetails: Sendable {
     }
 }
 
+struct StaleProcess: Identifiable, Hashable, Sendable {
+    let pid: Int32
+    let parentPID: Int32
+    let name: String
+    let workingDirectory: String
+    let command: String?
+
+    var id: Int32 { pid }
+}
+
 struct ApplicationMetrics: Identifiable, Codable, Sendable {
     let identity: ApplicationIdentity
     let processIDs: [Int32]

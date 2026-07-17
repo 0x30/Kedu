@@ -130,6 +130,50 @@ actor ProcessCollector {
         )
     }
 
+    func staleWorkingDirectoryProcesses() -> [StaleProcess] {
+        let currentUserID = getuid()
+        return allProcessIDs().compactMap { pid in
+            guard pid > 1,
+                  let info = bsdInfo(for: pid),
+                  uid_t(info.pbi_uid) == currentUserID,
+                  let workingDirectory = workingDirectory(for: pid),
+                  !FileManager.default.fileExists(atPath: workingDirectory) else {
+                return nil
+            }
+            let executablePath = executablePath(for: pid)
+            let name = executablePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+                ?? processName(for: pid)
+                ?? "PID \(pid)"
+            let arguments = arguments(for: pid)
+            return StaleProcess(
+                pid: pid,
+                parentPID: Int32(info.pbi_ppid),
+                name: name,
+                workingDirectory: workingDirectory,
+                command: arguments.isEmpty ? executablePath : arguments.map(Self.shellQuoted).joined(separator: " ")
+            )
+        }
+        .sorted { left, right in
+            if left.name == right.name {
+                return left.pid < right.pid
+            }
+            return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+        }
+    }
+
+    func terminateProcess(_ pid: pid_t) -> String? {
+        guard pid > 1,
+              pid != getpid(),
+              let info = bsdInfo(for: pid),
+              uid_t(info.pbi_uid) == getuid() else {
+            return "不允许停止该进程"
+        }
+        guard kill(pid, SIGTERM) == 0 else {
+            return String(cString: strerror(errno))
+        }
+        return nil
+    }
+
     nonisolated static func appRootPath(for executablePath: String) -> String? {
         if executablePath.hasSuffix(".app") {
             return executablePath
@@ -183,6 +227,13 @@ actor ProcessCollector {
             index = end + 1
         }
         return arguments
+    }
+
+    nonisolated private static func shellQuoted(_ argument: String) -> String {
+        guard argument.contains(where: { $0.isWhitespace || "'\"\\$`".contains($0) }) else {
+            return argument
+        }
+        return "'\(argument.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private func processRecords() -> [ProcessRecord] {
@@ -300,15 +351,16 @@ actor ProcessCollector {
     }
 
     private func parentPID(for pid: pid_t) -> pid_t {
+        bsdInfo(for: pid).map { pid_t($0.pbi_ppid) } ?? 0
+    }
+
+    private func bsdInfo(for pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = MemoryLayout<proc_bsdinfo>.size
         let result = withUnsafeMutablePointer(to: &info) { pointer in
             proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, pointer, Int32(size))
         }
-        guard result == Int32(size) else {
-            return 0
-        }
-        return pid_t(info.pbi_ppid)
+        return result == Int32(size) ? info : nil
     }
 
     private func arguments(for pid: pid_t) -> [String] {
