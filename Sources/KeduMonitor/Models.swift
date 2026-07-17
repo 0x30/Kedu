@@ -42,6 +42,7 @@ struct ProcessDetails: Sendable {
 
 struct ApplicationMetrics: Identifiable, Codable, Sendable {
     let identity: ApplicationIdentity
+    let processIDs: [Int32]
     let processes: [ProcessMetrics]
     let cpuPercent: Double
     let memoryBytes: UInt64
@@ -62,6 +63,7 @@ struct ApplicationMetrics: Identifiable, Codable, Sendable {
         networkUploadBytesPerSecond: Double = 0
     ) {
         self.identity = identity
+        self.processIDs = processIDs
         self.processes = processes ?? processIDs.map { pid in
             ProcessMetrics(
                 pid: pid,
@@ -83,7 +85,6 @@ struct ApplicationMetrics: Identifiable, Codable, Sendable {
     }
 
     var id: String { identity.id }
-    var processIDs: [Int32] { processes.map(\.pid) }
 }
 
 struct MetricSnapshot: Identifiable, Codable, Sendable {
@@ -148,6 +149,25 @@ struct MetricSnapshot: Identifiable, Codable, Sendable {
                     diskWriteBytesPerSecond: application.diskWriteBytesPerSecond,
                     networkDownloadBytesPerSecond: rates.downloadBytesPerSecond,
                     networkUploadBytesPerSecond: rates.uploadBytesPerSecond
+                )
+            }
+        )
+    }
+
+    func compactedForHistory() -> MetricSnapshot {
+        MetricSnapshot(
+            timestamp: timestamp,
+            applications: applications.map { application in
+                ApplicationMetrics(
+                    identity: application.identity,
+                    processIDs: application.processIDs,
+                    processes: [],
+                    cpuPercent: application.cpuPercent,
+                    memoryBytes: application.memoryBytes,
+                    diskReadBytesPerSecond: application.diskReadBytesPerSecond,
+                    diskWriteBytesPerSecond: application.diskWriteBytesPerSecond,
+                    networkDownloadBytesPerSecond: application.networkDownloadBytesPerSecond,
+                    networkUploadBytesPerSecond: application.networkUploadBytesPerSecond
                 )
             }
         )

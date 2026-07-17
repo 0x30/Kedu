@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class MonitorStore {
     private(set) var snapshots: [MetricSnapshot] = []
+    private(set) var latestSnapshot: MetricSnapshot?
     private(set) var isPaused = false
     private(set) var isCollecting = false
     private(set) var errorMessage: String?
@@ -28,10 +29,6 @@ final class MonitorStore {
     @ObservationIgnored private let processCollector = ProcessCollector()
     @ObservationIgnored private let networkCollector = NetworkCollector()
     @ObservationIgnored private var collectionTask: Task<Void, Never>?
-
-    var latestSnapshot: MetricSnapshot? {
-        snapshots.last
-    }
 
     var estimatedStorageBytes: Int {
         snapshots.reduce(0) { partial, snapshot in
@@ -78,6 +75,7 @@ final class MonitorStore {
 
     func clear() {
         snapshots.removeAll(keepingCapacity: true)
+        latestSnapshot = nil
     }
 
     func restartCollection() {
@@ -85,14 +83,16 @@ final class MonitorStore {
         start()
     }
 
-    func displaySnapshots(maximumCount: Int = 240) -> [MetricSnapshot] {
+    func displaySnapshots(maximumCount: Int = 600) -> [MetricSnapshot] {
         guard snapshots.count > maximumCount, maximumCount > 1 else {
             return snapshots
         }
-        let step = Double(snapshots.count - 1) / Double(maximumCount - 1)
-        return (0..<maximumCount).map { index in
-            snapshots[min(snapshots.count - 1, Int((Double(index) * step).rounded()))]
-        }
+        let bucketDuration = max(samplingInterval, retentionDuration / Double(maximumCount))
+        return Self.downsample(
+            snapshots,
+            maximumCount: maximumCount,
+            bucketDuration: bucketDuration
+        )
     }
 
     func processDetails(for pid: Int32) async -> ProcessDetails? {
@@ -116,8 +116,33 @@ final class MonitorStore {
     }
 
     private func append(_ snapshot: MetricSnapshot) {
-        snapshots.append(snapshot)
+        latestSnapshot = snapshot
+        snapshots.append(snapshot.compactedForHistory())
         trimSnapshots(referenceDate: snapshot.timestamp)
+    }
+
+    nonisolated static func downsample(
+        _ snapshots: [MetricSnapshot],
+        maximumCount: Int,
+        bucketDuration: TimeInterval
+    ) -> [MetricSnapshot] {
+        guard snapshots.count > maximumCount, maximumCount > 1, bucketDuration > 0 else {
+            return snapshots
+        }
+        var output: [MetricSnapshot] = []
+        output.reserveCapacity(maximumCount)
+        var previousBucket: Int64?
+
+        for snapshot in snapshots {
+            let bucket = Int64(floor(snapshot.timestamp.timeIntervalSinceReferenceDate / bucketDuration))
+            if bucket == previousBucket {
+                output[output.count - 1] = snapshot
+            } else {
+                output.append(snapshot)
+                previousBucket = bucket
+            }
+        }
+        return output.count > maximumCount ? Array(output.suffix(maximumCount)) : output
     }
 
     private func trimSnapshots(referenceDate: Date = .now) {
