@@ -102,6 +102,11 @@ struct MetricSnapshot: Identifiable, Codable, Sendable {
         applications.reduce(0) { $0 + $1.cpuPercent }
     }
 
+    var systemCPUPercent: Double {
+        let processorCount = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        return min(100, totalCPUPercent / Double(processorCount))
+    }
+
     var totalMemoryBytes: UInt64 {
         applications.reduce(0) { $0 + $1.memoryBytes }
     }

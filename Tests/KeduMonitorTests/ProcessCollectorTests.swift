@@ -32,6 +32,18 @@ struct ProcessCollectorTests {
         #expect(ProcessCollector.positiveDelta(12, 9) == 3)
     }
 
+    @Test("CPU percentage uses one logical core as 100 percent")
+    func calculatesActivityMonitorCPUPercentage() {
+        #expect(ProcessCollector.cpuPercent(
+            cpuDeltaNanoseconds: 500_000_000,
+            elapsed: 1
+        ) == 50)
+        #expect(ProcessCollector.cpuPercent(
+            cpuDeltaNanoseconds: 2_000_000_000,
+            elapsed: 1
+        ) == 200)
+    }
+
     @Test("parses process arguments from kern procargs data")
     func parsesArguments() {
         var count = Int32(3)

@@ -261,7 +261,7 @@ private struct SummaryStrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            item(.cpu, icon: "cpu", value: String(format: "%.1f", snapshot?.totalCPUPercent ?? 0), unit: "%")
+            item(.cpu, icon: "cpu", value: String(format: "%.1f", snapshot?.systemCPUPercent ?? 0), unit: "%")
             Divider()
             item(
                 .memory,

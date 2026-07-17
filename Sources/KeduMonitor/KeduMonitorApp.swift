@@ -62,7 +62,7 @@ private struct MenuBarLauncher: View {
                 VStack(spacing: 7) {
                     MenuTrendRow(
                         symbol: "cpu",
-                        series: [MenuTrendSeries(values: recentSnapshots.map(\.totalCPUPercent), color: .cyan)],
+                        series: [MenuTrendSeries(values: recentSnapshots.map(\.systemCPUPercent), color: .cyan)],
                         maximum: cpuMaximum,
                         help: "CPU"
                     )
@@ -110,7 +110,7 @@ private struct MenuBarLauncher: View {
     }
 
     private var cpuValue: String {
-        String(format: "%.1f%%", store.latestSnapshot?.totalCPUPercent ?? 0)
+        String(format: "%.1f%%", store.latestSnapshot?.systemCPUPercent ?? 0)
     }
 
     private var memoryValue: String {
@@ -119,7 +119,7 @@ private struct MenuBarLauncher: View {
     }
 
     private var cpuMaximum: Double {
-        let observed = recentSnapshots.map(\.totalCPUPercent).max() ?? 0
+        let observed = recentSnapshots.map(\.systemCPUPercent).max() ?? 0
         return max(5, min(100, ceil(observed / 5) * 5))
     }
 

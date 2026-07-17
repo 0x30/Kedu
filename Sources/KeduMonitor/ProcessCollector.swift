@@ -30,7 +30,6 @@ actor ProcessCollector {
     private var latestIdentityByPID: [pid_t: ApplicationIdentity] = [:]
     private var identityCache: [String: ApplicationIdentity] = [:]
     private let clock = ContinuousClock()
-    private let processorCount = max(1, ProcessInfo.processInfo.activeProcessorCount)
 
     func sample() -> MetricSnapshot {
         let now = clock.now
@@ -55,8 +54,10 @@ actor ProcessCollector {
                 let cpuDelta = Self.positiveDelta(record.counters.cpuNanoseconds, previous.cpuNanoseconds)
                 let readDelta = Self.positiveDelta(record.counters.diskReadBytes, previous.diskReadBytes)
                 let writeDelta = Self.positiveDelta(record.counters.diskWriteBytes, previous.diskWriteBytes)
-                cpuPercent = Double(cpuDelta) / 1_000_000_000 / elapsed
-                    / Double(processorCount) * 100
+                cpuPercent = Self.cpuPercent(
+                    cpuDeltaNanoseconds: cpuDelta,
+                    elapsed: elapsed
+                )
                 diskReadBytesPerSecond = Double(readDelta) / elapsed
                 diskWriteBytesPerSecond = Double(writeDelta) / elapsed
             }
@@ -137,6 +138,16 @@ actor ProcessCollector {
 
     nonisolated static func positiveDelta(_ current: UInt64, _ previous: UInt64) -> UInt64 {
         current >= previous ? current - previous : 0
+    }
+
+    nonisolated static func cpuPercent(
+        cpuDeltaNanoseconds: UInt64,
+        elapsed: Double
+    ) -> Double {
+        guard elapsed > 0 else {
+            return 0
+        }
+        return Double(cpuDeltaNanoseconds) / 1_000_000_000 / elapsed * 100
     }
 
     nonisolated static func parseArguments(_ data: Data) -> [String] {
