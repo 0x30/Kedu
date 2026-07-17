@@ -43,6 +43,14 @@ struct ContentView: View {
         }
         .background(.ultraThinMaterial)
         .animation(.easeOut(duration: 0.18), value: showsApplications)
+        .onExitCommand {
+            if showsApplications {
+                inspectedSnapshot = nil
+                showsApplications = false
+            } else if showsSettings {
+                showsSettings = false
+            }
+        }
     }
 
     private var chartContent: some View {
