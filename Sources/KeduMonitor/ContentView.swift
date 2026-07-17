@@ -17,8 +17,6 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 SummaryStrip(snapshot: store.latestSnapshot, selection: $category)
                 Divider()
-                toolbar
-                Divider()
                 chartContent
             }
 
@@ -43,73 +41,9 @@ struct ContentView: View {
         .onDisappear { store.stop() }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 8) {
-            Picker("指标", selection: $category) {
-                ForEach(MetricCategory.allCases) { item in
-                    Text(item.title).tag(item)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 286)
-
-            if category == .disk || category == .network {
-                Picker("方向", selection: $direction) {
-                    Text(category == .network ? "下载" : "读取").tag(TransferDirection.incoming)
-                    Text(category == .network ? "上传" : "写入").tag(TransferDirection.outgoing)
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 116)
-            }
-
-            Spacer()
-
-            if store.errorMessage != nil {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                    .help(store.errorMessage ?? "")
-            }
-
-            Button {
-                store.togglePause()
-            } label: {
-                Image(systemName: store.isPaused ? "play.fill" : "pause.fill")
-                    .frame(width: 16)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.teal)
-            .help(store.isPaused ? "继续采样" : "暂停采样")
-
-            Button {
-                showsApplications.toggle()
-            } label: {
-                Label("应用", systemImage: showsApplications ? "panel.right.fill" : "panel.right")
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                showsSettings.toggle()
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: 16)
-            }
-            .buttonStyle(.bordered)
-            .help("采样设置")
-            .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
-                SamplingSettingsView()
-                    .environment(store)
-            }
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 48)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
     private var chartContent: some View {
         VStack(spacing: 10) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(metric.title)
                         .font(.system(size: 15, weight: .semibold))
@@ -117,13 +51,52 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if category == .disk || category == .network {
+                    Picker("方向", selection: $direction) {
+                        Image(systemName: "arrow.down").tag(TransferDirection.incoming)
+                        Image(systemName: "arrow.up").tag(TransferDirection.outgoing)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 72)
+                    .help(category == .network ? "下载 / 上传" : "读取 / 写入")
+                }
+
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(metric.formatted(store.latestSnapshot.map(metric.total(in:)) ?? 0))
-                        .font(.system(.title3, design: .monospaced, weight: .semibold))
-                    Text(store.isPaused ? "已暂停" : "当前合计")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+
+                Text(metric.formatted(store.latestSnapshot.map(metric.total(in:)) ?? 0))
+                    .font(.system(.title3, design: .monospaced, weight: .semibold))
+
+                if store.errorMessage != nil {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .help(store.errorMessage ?? "")
+                }
+
+                iconButton(
+                    store.isPaused ? "play.fill" : "pause.fill",
+                    help: store.isPaused ? "继续采样" : "暂停采样",
+                    action: store.togglePause
+                )
+
+                iconButton(
+                    showsApplications ? "sidebar.right" : "sidebar.right",
+                    help: "应用",
+                    action: { showsApplications.toggle() }
+                )
+
+                Button {
+                    showsSettings.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.borderless)
+                .help("采样设置")
+                .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
+                    SamplingSettingsView()
+                        .environment(store)
                 }
             }
 
@@ -137,6 +110,19 @@ struct ContentView: View {
         .padding(.top, 13)
         .padding(.bottom, 10)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func iconButton(
+        _ systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .frame(width: 16, height: 16)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 
     private var intervalLabel: String {
@@ -279,7 +265,7 @@ private struct SummaryStrip: View {
                 unit: "MB/s"
             )
         }
-        .frame(height: 64)
+        .frame(height: 62)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -300,13 +286,13 @@ private struct SummaryStrip: View {
         Button {
             selection = category
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 Label(category.title, systemImage: icon)
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(selection == category ? Color.teal : .secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value)
-                        .font(.system(size: 21, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
                     Text(unit)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -317,10 +303,12 @@ private struct SummaryStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(selection == category ? Color.teal.opacity(0.055) : .clear)
-        .overlay(alignment: .bottom) {
+        .foregroundStyle(selection == category ? Color.primary : Color.secondary)
+        .overlay(alignment: .leading) {
             if selection == category {
-                Rectangle().fill(Color.teal).frame(height: 2)
+                Capsule()
+                    .fill(Color.teal)
+                    .frame(width: 2, height: 30)
             }
         }
     }
