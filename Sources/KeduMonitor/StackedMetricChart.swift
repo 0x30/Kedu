@@ -11,8 +11,8 @@ struct StackedMetricChart: View {
 
     private let leftInset: CGFloat = 42
     private let rightInset: CGFloat = 8
-    private let topInset: CGFloat = 3
-    private let bottomInset: CGFloat = 19
+    private let topInset: CGFloat = 2
+    private let bottomInset: CGFloat = 17
 
     init(
         snapshots: [MetricSnapshot],
@@ -26,9 +26,7 @@ struct StackedMetricChart: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            ChartLegend(series: renderData.series)
-
+        VStack(spacing: 3) {
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
                     Canvas { context, size in
@@ -71,7 +69,7 @@ struct StackedMetricChart: View {
                 }
                 .clipped()
             }
-            .frame(minHeight: 250)
+            .frame(minHeight: 210)
         }
     }
 
@@ -313,43 +311,6 @@ struct ChartRenderData {
             series: ChartSeries.make(from: snapshots, metric: metric),
             maximum: StackedMetricChart.maximumYValue(for: snapshots, metric: metric)
         )
-    }
-}
-
-private struct ChartLegend: View {
-    let series: [ChartSeries]
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 13) {
-                ForEach(series) { item in
-                    HStack(spacing: 5) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(ApplicationPalette.color(for: item.identity))
-                            .frame(width: 8, height: 8)
-                        Text(item.identity.name)
-                            .lineLimit(1)
-                        Text(share(for: item), format: .percent.precision(.fractionLength(0)))
-                            .monospacedDigit()
-                            .foregroundStyle(.tertiary)
-                    }
-                    .font(.caption2)
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .frame(height: 18)
-    }
-
-    private var currentTotal: Double {
-        series.reduce(0) { $0 + ($1.values.last ?? 0) }
-    }
-
-    private func share(for item: ChartSeries) -> Double {
-        guard currentTotal > 0 else {
-            return 0
-        }
-        return (item.values.last ?? 0) / currentTotal
     }
 }
 

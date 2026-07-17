@@ -46,7 +46,7 @@ struct ContentView: View {
     }
 
     private var chartContent: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 4) {
             HStack(alignment: .center, spacing: 8) {
                 Text("\(retentionLabel) · \(intervalLabel)")
                     .font(.caption2.monospacedDigit())
@@ -110,9 +110,9 @@ struct ContentView: View {
             )
             .frame(maxHeight: .infinity)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 10)
+        .padding(.top, 5)
+        .padding(.bottom, 5)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -277,7 +277,7 @@ private struct SummaryStrip: View {
                 unit: "MB/s"
             )
         }
-        .frame(height: 62)
+        .frame(height: 56)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -304,14 +304,14 @@ private struct SummaryStrip: View {
                     .foregroundStyle(selection == category ? Color.teal : .secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value)
-                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
                     Text(unit)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 11)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
