@@ -256,7 +256,7 @@ struct StackedMetricChart: View {
     }
 }
 
-private struct ChartSeries: Identifiable {
+struct ChartSeries: Identifiable {
     let identity: ApplicationIdentity
     let values: [Double]
 
@@ -299,7 +299,7 @@ private struct ChartSeries: Identifiable {
     }
 }
 
-private struct ChartRenderData {
+struct ChartRenderData {
     let series: [ChartSeries]
     let maximum: Double
     let dominanceColors: [Color]
