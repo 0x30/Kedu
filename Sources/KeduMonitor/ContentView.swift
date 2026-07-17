@@ -41,7 +41,7 @@ struct ContentView: View {
                 .transition(.move(edge: .trailing))
             }
         }
-        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.32))
+        .background(.ultraThinMaterial)
         .animation(.easeOut(duration: 0.18), value: showsApplications)
     }
 
@@ -111,9 +111,9 @@ struct ContentView: View {
             .frame(maxHeight: .infinity)
         }
         .padding(.horizontal, 10)
-        .padding(.top, 5)
-        .padding(.bottom, 5)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+        .background(.regularMaterial)
     }
 
     private func iconButton(
@@ -277,8 +277,8 @@ private struct SummaryStrip: View {
                 unit: "MB/s"
             )
         }
-        .frame(height: 56)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(height: 50)
+        .background(.thinMaterial)
     }
 
     private var diskTotal: Double {

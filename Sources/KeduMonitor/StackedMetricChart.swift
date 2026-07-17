@@ -9,10 +9,10 @@ struct StackedMetricChart: View {
 
     @State private var selectedIndex: Int?
 
-    private let leftInset: CGFloat = 42
-    private let rightInset: CGFloat = 8
-    private let topInset: CGFloat = 2
-    private let bottomInset: CGFloat = 17
+    private let leftInset: CGFloat = 6
+    private let rightInset: CGFloat = 6
+    private let topInset: CGFloat = 4
+    private let bottomInset: CGFloat = 6
 
     init(
         snapshots: [MetricSnapshot],
@@ -69,7 +69,7 @@ struct StackedMetricChart: View {
                 }
                 .clipped()
             }
-            .frame(minHeight: 210)
+            .frame(minHeight: 180)
         }
     }
 
@@ -102,8 +102,6 @@ struct StackedMetricChart: View {
             series: renderData.series,
             maximum: renderData.maximum
         )
-        drawTimeLabels(context: context, plot: plot)
-
         if let selectedIndex, snapshots.indices.contains(selectedIndex) {
             let x = xPosition(for: selectedIndex, in: plot)
             var line = Path()
@@ -120,7 +118,6 @@ struct StackedMetricChart: View {
     private func drawGrid(context: GraphicsContext, plot: CGRect, maximum: Double) {
         for tick in 0...4 {
             let fraction = Double(tick) / 4
-            let value = maximum * fraction
             let y = plot.maxY - plot.height * CGFloat(fraction)
             var path = Path()
             path.move(to: CGPoint(x: plot.minX, y: y))
@@ -130,11 +127,6 @@ struct StackedMetricChart: View {
                 with: .color(Color.secondary.opacity(tick == 0 ? 0.24 : 0.13)),
                 lineWidth: 1
             )
-
-            let label = Text(metric.axisLabel(value))
-                .font(.system(size: 9, design: .rounded))
-                .foregroundStyle(.secondary)
-            context.draw(label, at: CGPoint(x: plot.minX - 8, y: y), anchor: .trailing)
         }
     }
 
@@ -182,23 +174,6 @@ struct StackedMetricChart: View {
                 index == 0 ? topLine.move(to: point) : topLine.addLine(to: point)
             }
             context.stroke(topLine, with: .color(color.opacity(0.95)), lineWidth: 0.7)
-        }
-    }
-
-    private func drawTimeLabels(context: GraphicsContext, plot: CGRect) {
-        guard snapshots.count > 1 else {
-            return
-        }
-        let indexes = [0, 1, 2, 3, 4].map {
-            Int((Double(snapshots.count - 1) * Double($0) / 4).rounded())
-        }
-        for (position, index) in indexes.enumerated() {
-            let date = snapshots[index].timestamp.formatted(.dateTime.hour().minute())
-            let text = Text(date)
-                .font(.system(size: 9, design: .rounded))
-                .foregroundStyle(.secondary)
-            let anchor: UnitPoint = position == 0 ? .topLeading : position == 4 ? .topTrailing : .top
-            context.draw(text, at: CGPoint(x: xPosition(for: index, in: plot), y: plot.maxY + 7), anchor: anchor)
         }
     }
 

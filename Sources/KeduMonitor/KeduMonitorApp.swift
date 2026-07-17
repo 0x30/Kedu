@@ -15,10 +15,11 @@ struct KeduMonitorApp: App {
         Window("刻度", id: "main") {
             ContentView()
                 .environment(store)
-                .frame(minWidth: 660, minHeight: 400)
+                .frame(minWidth: 600, minHeight: 360)
         }
-        .defaultSize(width: 840, height: 500)
+        .defaultSize(width: 760, height: 440)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
 
         MenuBarExtra("刻度", systemImage: "gauge.with.dots.needle.67percent") {
             MenuBarLauncher()
