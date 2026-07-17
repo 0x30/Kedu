@@ -443,22 +443,10 @@ private struct ApplicationRow: View {
             if isExpanded {
                 VStack(spacing: 0) {
                     ForEach(sortedProcesses) { process in
-                        HStack(spacing: 7) {
-                            Text("\(process.pid)")
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 38, alignment: .trailing)
-                            Text(process.name)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            Text(displayValue(metric.value(for: process)))
-                                .font(.caption2.monospacedDigit())
-                        }
-                        .padding(.leading, 17)
-                        .padding(.trailing, 32)
-                        .frame(height: 29)
+                        ProcessDiagnosticRow(
+                            process: process,
+                            value: displayValue(metric.value(for: process))
+                        )
                     }
                 }
                 .padding(.bottom, 5)
@@ -488,6 +476,141 @@ private struct ApplicationRow: View {
         case .share:
             total > 0 ? String(format: "%.0f%%", value / total * 100) : "0%"
         }
+    }
+}
+
+private struct ProcessDiagnosticRow: View {
+    @Environment(MonitorStore.self) private var store
+    let process: ProcessMetrics
+    let value: String
+    @State private var isExpanded = false
+    @State private var details: ProcessDetails?
+    @State private var isLoading = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    isExpanded.toggle()
+                }
+                if isExpanded, details == nil {
+                    loadDetails()
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 8)
+                    Text("\(process.pid)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 38, alignment: .trailing)
+                    Text(process.name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(value)
+                        .font(.caption2.monospacedDigit())
+                }
+                .padding(.leading, 9)
+                .padding(.trailing, 32)
+                .frame(height: 29)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ProcessDetailsView(details: details, isLoading: isLoading)
+                    .padding(.leading, 63)
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 9)
+            }
+        }
+    }
+
+    private func loadDetails() {
+        isLoading = true
+        Task {
+            details = await store.processDetails(for: process.pid)
+            isLoading = false
+        }
+    }
+}
+
+private struct ProcessDetailsView: View {
+    let details: ProcessDetails?
+    let isLoading: Bool
+
+    var body: some View {
+        if isLoading {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let details {
+            VStack(alignment: .leading, spacing: 7) {
+                if let workingDirectory = details.workingDirectory {
+                    detailRow(
+                        icon: "folder",
+                        value: workingDirectory,
+                        help: "在 Finder 中显示"
+                    ) {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workingDirectory)
+                    }
+                }
+                if let command = details.command {
+                    detailRow(
+                        icon: "terminal",
+                        value: command,
+                        help: "复制启动命令"
+                    ) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                    }
+                }
+                if let executablePath = details.executablePath,
+                   executablePath != details.arguments.first {
+                    detailRow(
+                        icon: "shippingbox",
+                        value: executablePath,
+                        help: "在 Finder 中显示"
+                    ) {
+                        NSWorkspace.shared.selectFile(executablePath, inFileViewerRootedAtPath: "")
+                    }
+                }
+            }
+        } else {
+            Text("无法读取进程详情")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func detailRow(
+        icon: String,
+        value: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 11)
+                Text(value)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 

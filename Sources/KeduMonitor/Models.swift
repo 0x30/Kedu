@@ -19,6 +19,27 @@ struct ProcessMetrics: Identifiable, Codable, Sendable {
     var id: Int32 { pid }
 }
 
+struct ProcessDetails: Sendable {
+    let pid: Int32
+    let executablePath: String?
+    let workingDirectory: String?
+    let arguments: [String]
+
+    var command: String? {
+        guard !arguments.isEmpty else {
+            return executablePath
+        }
+        return arguments.map(Self.shellQuoted).joined(separator: " ")
+    }
+
+    nonisolated private static func shellQuoted(_ argument: String) -> String {
+        guard argument.contains(where: { $0.isWhitespace || "'\"\\$`".contains($0) }) else {
+            return argument
+        }
+        return "'\(argument.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+}
+
 struct ApplicationMetrics: Identifiable, Codable, Sendable {
     let identity: ApplicationIdentity
     let processes: [ProcessMetrics]

@@ -112,6 +112,19 @@ actor ProcessCollector {
         latestIdentityByPID
     }
 
+    func processDetails(for pid: pid_t) -> ProcessDetails? {
+        let executablePath = executablePath(for: pid)
+        guard executablePath != nil || processName(for: pid) != nil else {
+            return nil
+        }
+        return ProcessDetails(
+            pid: pid,
+            executablePath: executablePath,
+            workingDirectory: workingDirectory(for: pid),
+            arguments: arguments(for: pid)
+        )
+    }
+
     nonisolated static func appRootPath(for executablePath: String) -> String? {
         if executablePath.hasSuffix(".app") {
             return executablePath
@@ -124,6 +137,37 @@ actor ProcessCollector {
 
     nonisolated static func positiveDelta(_ current: UInt64, _ previous: UInt64) -> UInt64 {
         current >= previous ? current - previous : 0
+    }
+
+    nonisolated static func parseArguments(_ data: Data) -> [String] {
+        guard data.count >= MemoryLayout<Int32>.size else {
+            return []
+        }
+        let argumentCount = data.prefix(MemoryLayout<Int32>.size).withUnsafeBytes {
+            Int($0.loadUnaligned(as: Int32.self))
+        }
+        guard argumentCount > 0 else {
+            return []
+        }
+
+        let bytes = [UInt8](data.dropFirst(MemoryLayout<Int32>.size))
+        guard let executableEnd = bytes.firstIndex(of: 0) else {
+            return []
+        }
+        var index = executableEnd
+        while index < bytes.count, bytes[index] == 0 {
+            index += 1
+        }
+
+        var arguments: [String] = []
+        while index < bytes.count, arguments.count < argumentCount {
+            guard let end = bytes[index...].firstIndex(of: 0) else {
+                break
+            }
+            arguments.append(String(decoding: bytes[index..<end], as: UTF8.self))
+            index = end + 1
+        }
+        return arguments
     }
 
     private func processRecords() -> [ProcessRecord] {
@@ -250,6 +294,40 @@ actor ProcessCollector {
             return 0
         }
         return pid_t(info.pbi_ppid)
+    }
+
+    private func arguments(for pid: pid_t) -> [String] {
+        var control: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&control, UInt32(control.count), nil, &size, nil, 0) == 0, size > 0 else {
+            return []
+        }
+        var data = Data(count: size)
+        let result = data.withUnsafeMutableBytes { buffer in
+            sysctl(&control, UInt32(control.count), buffer.baseAddress, &size, nil, 0)
+        }
+        guard result == 0 else {
+            return []
+        }
+        data.count = size
+        return Self.parseArguments(data)
+    }
+
+    private func workingDirectory(for pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let expectedSize = MemoryLayout<proc_vnodepathinfo>.size
+        let result = withUnsafeMutablePointer(to: &info) {
+            proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, $0, Int32(expectedSize))
+        }
+        guard result == Int32(expectedSize) else {
+            return nil
+        }
+        return withUnsafePointer(to: &info.pvi_cdir.vip_path) { path in
+            path.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) {
+                let value = String(cString: $0)
+                return value.isEmpty ? nil : value
+            }
+        }
     }
 
     private func seconds(

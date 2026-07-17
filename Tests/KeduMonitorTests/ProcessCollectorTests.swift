@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import KeduMonitor
 
@@ -29,5 +30,14 @@ struct ProcessCollectorTests {
     func handlesCounterReset() {
         #expect(ProcessCollector.positiveDelta(4, 9) == 0)
         #expect(ProcessCollector.positiveDelta(12, 9) == 3)
+    }
+
+    @Test("parses process arguments from kern procargs data")
+    func parsesArguments() {
+        var count = Int32(3)
+        var data = withUnsafeBytes(of: &count) { Data($0) }
+        data.append(contentsOf: "/usr/bin/node\0\0node\0server.js\0--port=3000\0PATH=/bin\0".utf8)
+
+        #expect(ProcessCollector.parseArguments(data) == ["node", "server.js", "--port=3000"])
     }
 }

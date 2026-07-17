@@ -95,6 +95,10 @@ final class MonitorStore {
         }
     }
 
+    func processDetails(for pid: Int32) async -> ProcessDetails? {
+        await processCollector.processDetails(for: pid)
+    }
+
     private func capture() async {
         isCollecting = true
         let processSnapshot = await processCollector.sample()
