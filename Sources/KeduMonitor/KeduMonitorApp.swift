@@ -12,7 +12,7 @@ struct KeduMonitorApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("刻度", id: "main") {
+        Window("刻度", id: "main") {
             ContentView()
                 .environment(store)
                 .frame(minWidth: 720, minHeight: 460)
