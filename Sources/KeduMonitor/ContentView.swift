@@ -41,7 +41,10 @@ struct ContentView: View {
                 .transition(.move(edge: .trailing))
             }
         }
-        .background(.ultraThinMaterial)
+        .background {
+            FrostedWindowBackground()
+                .ignoresSafeArea()
+        }
         .animation(.easeOut(duration: 0.18), value: showsApplications)
         .onExitCommand {
             if showsApplications {
@@ -121,7 +124,7 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .padding(.top, 4)
         .padding(.bottom, 4)
-        .background(.regularMaterial)
+        .background(.ultraThinMaterial)
     }
 
     private func iconButton(
