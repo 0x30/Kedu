@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Run tests
+        run: swift test
+
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.KEDU_CERT_P12 }}
+          CERT_PWD: ${{ secrets.KEDU_CERT_PWD }}
+        run: |
+          if [ -z "$CERT_P12" ]; then
+            echo "No signing certificate configured; using ad-hoc signing"
+            exit 0
+          fi
+          echo "$CERT_P12" | base64 -d > cert.p12
+          security create-keychain -p ci ci.keychain
+          security default-keychain -s ci.keychain
+          security unlock-keychain -p ci ci.keychain
+          security import cert.p12 -k ci.keychain -P "$CERT_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci ci.keychain
+          CN=$(security find-identity -v -p codesigning ci.keychain | sed -n 's/.*"\(.*\)"/\1/p' | head -1)
+          if [ -z "$CN" ]; then
+            echo "No valid code-signing identity found" >&2
+            exit 1
+          fi
+          echo "KEDU_SIGN_ID=$CN" >> "$GITHUB_ENV"
+          rm -f cert.p12
+
+      - name: Build release archive
+        env:
+          KEDU_BUILD: ${{ github.run_number }}
+        run: |
+          MARKETING="0.1.$(git rev-list --count HEAD)"
+          echo "KEDU_MARKETING=$MARKETING" >> "$GITHUB_ENV"
+          KEDU_VERSION="$MARKETING" ./scripts/package-release.sh
+          cd dist
+          shasum -a 256 -c KeduMonitor-macOS.zip.sha256
+          codesign --verify --deep --strict --verbose=2 "刻度.app"
+
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git tag --list 'build-*' --sort=-v:refname | head -1)
+          {
+            echo "自动构建自 \`${GITHUB_SHA::8}\`。"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo "### 自 ${PREV_TAG} 以来的变更"
+              echo
+              git log "${PREV_TAG}..HEAD" --pretty=format:'- %s'
+            else
+              echo "### 变更"
+              echo
+              git log --pretty=format:'- %s' -30
+            fi
+            echo
+            echo
+            echo "### 安装"
+            echo
+            echo "下载 \`KeduMonitor-macOS.zip\`，解压后将 \`刻度.app\` 拖入「应用程序」。"
+            echo
+            echo "> 若构建未经过 Apple 公证，首次打开被系统拦截，请执行："
+            echo "> \`xattr -cr /Applications/刻度.app\`"
+          } > release-notes.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 刻度 ${{ env.KEDU_MARKETING }} (build ${{ github.run_number }})
+          body_path: release-notes.md
+          files: |
+            dist/KeduMonitor-macOS.zip
+            dist/KeduMonitor-macOS.zip.sha256
