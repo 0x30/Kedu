@@ -4,14 +4,20 @@ import SwiftUI
 struct StackedMetricChart: View {
     let snapshots: [MetricSnapshot]
     let metric: MetricKind
+    private let renderData: ChartRenderData
 
-    @State private var hoverLocation: CGPoint?
     @State private var selectedIndex: Int?
 
     private let leftInset: CGFloat = 42
     private let rightInset: CGFloat = 8
     private let topInset: CGFloat = 8
     private let bottomInset: CGFloat = 24
+
+    init(snapshots: [MetricSnapshot], metric: MetricKind) {
+        self.snapshots = snapshots
+        self.metric = metric
+        renderData = ChartRenderData.make(from: snapshots, metric: metric)
+    }
 
     var body: some View {
         VStack(spacing: 9) {
@@ -26,21 +32,19 @@ struct StackedMetricChart: View {
                         case .active(let location):
                             updateSelection(location: location, size: geometry.size)
                         case .ended:
-                            hoverLocation = nil
                             selectedIndex = nil
                         }
                     }
 
                     if let selectedIndex,
-                       snapshots.indices.contains(selectedIndex),
-                       let hoverLocation {
+                       snapshots.indices.contains(selectedIndex) {
                         MetricTooltip(
                             snapshot: snapshots[selectedIndex],
                             metric: metric
                         )
                         .frame(width: 212)
                         .fixedSize(horizontal: false, vertical: true)
-                        .offset(tooltipOffset(for: hoverLocation, in: geometry.size))
+                        .offset(tooltipOffset(for: selectedIndex, in: geometry.size))
                         .allowsHitTesting(false)
                     }
 
@@ -60,18 +64,14 @@ struct StackedMetricChart: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(width: 34, alignment: .trailing)
-                DominanceStrip(snapshots: snapshots, metric: metric)
+                DominanceStrip(colors: renderData.dominanceColors)
                     .frame(height: 10)
                     .clipShape(RoundedRectangle(cornerRadius: 2))
             }
         }
     }
 
-    private var series: [ChartSeries] {
-        ChartSeries.make(from: snapshots, metric: metric)
-    }
-
-    private var maximumYValue: Double {
+    fileprivate static func maximumYValue(for snapshots: [MetricSnapshot], metric: MetricKind) -> Double {
         let observed = snapshots.map { metric.total(in: $0) }.max() ?? 0
         switch metric {
         case .cpu:
@@ -93,8 +93,13 @@ struct StackedMetricChart: View {
             width: size.width - leftInset - rightInset,
             height: size.height - topInset - bottomInset
         )
-        drawGrid(context: context, plot: plot)
-        drawAreas(context: context, plot: plot)
+        drawGrid(context: context, plot: plot, maximum: renderData.maximum)
+        drawAreas(
+            context: context,
+            plot: plot,
+            series: renderData.series,
+            maximum: renderData.maximum
+        )
         drawTimeLabels(context: context, plot: plot)
 
         if let selectedIndex, snapshots.indices.contains(selectedIndex) {
@@ -110,10 +115,10 @@ struct StackedMetricChart: View {
         }
     }
 
-    private func drawGrid(context: GraphicsContext, plot: CGRect) {
+    private func drawGrid(context: GraphicsContext, plot: CGRect, maximum: Double) {
         for tick in 0...4 {
             let fraction = Double(tick) / 4
-            let value = maximumYValue * fraction
+            let value = maximum * fraction
             let y = plot.maxY - plot.height * CGFloat(fraction)
             var path = Path()
             path.move(to: CGPoint(x: plot.minX, y: y))
@@ -131,7 +136,12 @@ struct StackedMetricChart: View {
         }
     }
 
-    private func drawAreas(context: GraphicsContext, plot: CGRect) {
+    private func drawAreas(
+        context: GraphicsContext,
+        plot: CGRect,
+        series: [ChartSeries],
+        maximum: Double
+    ) {
         guard !snapshots.isEmpty else {
             return
         }
@@ -147,14 +157,14 @@ struct StackedMetricChart: View {
             for index in snapshots.indices {
                 let point = CGPoint(
                     x: xPosition(for: index, in: plot),
-                    y: yPosition(for: cumulative[index], in: plot)
+                    y: yPosition(for: cumulative[index], in: plot, maximum: maximum)
                 )
                 index == 0 ? area.move(to: point) : area.addLine(to: point)
             }
             for index in snapshots.indices.reversed() {
                 area.addLine(to: CGPoint(
                     x: xPosition(for: index, in: plot),
-                    y: yPosition(for: bottoms[index], in: plot)
+                    y: yPosition(for: bottoms[index], in: plot, maximum: maximum)
                 ))
             }
             area.closeSubpath()
@@ -165,7 +175,7 @@ struct StackedMetricChart: View {
             for index in snapshots.indices {
                 let point = CGPoint(
                     x: xPosition(for: index, in: plot),
-                    y: yPosition(for: cumulative[index], in: plot)
+                    y: yPosition(for: cumulative[index], in: plot, maximum: maximum)
                 )
                 index == 0 ? topLine.move(to: point) : topLine.addLine(to: point)
             }
@@ -197,23 +207,30 @@ struct StackedMetricChart: View {
               location.x <= size.width - rightInset,
               location.y >= topInset,
               location.y <= size.height - bottomInset else {
-            hoverLocation = nil
             selectedIndex = nil
             return
         }
         let fraction = (location.x - leftInset) / plotWidth
-        selectedIndex = min(
+        let index = min(
             snapshots.count - 1,
             max(0, Int((fraction * CGFloat(snapshots.count - 1)).rounded()))
         )
-        hoverLocation = location
+        if selectedIndex != index {
+            selectedIndex = index
+        }
     }
 
-    private func tooltipOffset(for location: CGPoint, in size: CGSize) -> CGSize {
+    private func tooltipOffset(for index: Int, in size: CGSize) -> CGSize {
         let width: CGFloat = 212
-        let x = location.x + width + 18 > size.width ? location.x - width - 10 : location.x + 10
-        let y = min(max(topInset, location.y - 28), max(topInset, size.height - 174))
-        return CGSize(width: x, height: y)
+        let plot = CGRect(
+            x: leftInset,
+            y: topInset,
+            width: size.width - leftInset - rightInset,
+            height: size.height - topInset - bottomInset
+        )
+        let locationX = xPosition(for: index, in: plot)
+        let x = locationX + width + 18 > size.width ? locationX - width - 10 : locationX + 10
+        return CGSize(width: x, height: topInset + 4)
     }
 
     private func xPosition(for index: Int, in plot: CGRect) -> CGFloat {
@@ -223,8 +240,8 @@ struct StackedMetricChart: View {
         return plot.minX + plot.width * CGFloat(index) / CGFloat(snapshots.count - 1)
     }
 
-    private func yPosition(for value: Double, in plot: CGRect) -> CGFloat {
-        plot.maxY - plot.height * CGFloat(min(1, max(0, value / maximumYValue)))
+    private func yPosition(for value: Double, in plot: CGRect, maximum: Double) -> CGFloat {
+        plot.maxY - plot.height * CGFloat(min(1, max(0, value / maximum)))
     }
 
     private static func niceMaximum(_ value: Double) -> Double {
@@ -252,21 +269,25 @@ private struct ChartSeries: Identifiable {
             }
         }
         let topIdentities = totals.sorted { $0.value > $1.value }.prefix(7).map(\.key)
-        let topIDs = Set(topIdentities.map(\.id))
-        var series = topIdentities.map { identity in
-            ChartSeries(
-                identity: identity,
-                values: snapshots.map { snapshot in
-                    snapshot.applications.first { $0.identity.id == identity.id }
-                        .map(metric.value(for:)) ?? 0
+        let indexByID = Dictionary(uniqueKeysWithValues: topIdentities.enumerated().map { ($0.element.id, $0.offset) })
+        var values = topIdentities.map { _ in
+            [Double](repeating: 0, count: snapshots.count)
+        }
+        var otherValues = [Double](repeating: 0, count: snapshots.count)
+
+        for (snapshotIndex, snapshot) in snapshots.enumerated() {
+            for application in snapshot.applications {
+                let value = metric.value(for: application)
+                if let seriesIndex = indexByID[application.identity.id] {
+                    values[seriesIndex][snapshotIndex] = value
+                } else {
+                    otherValues[snapshotIndex] += value
                 }
-            )
+            }
         }
 
-        let otherValues = snapshots.map { snapshot in
-            snapshot.applications
-                .filter { !topIDs.contains($0.identity.id) }
-                .reduce(0) { $0 + metric.value(for: $1) }
+        var series = zip(topIdentities, values).map { identity, values in
+            ChartSeries(identity: identity, values: values)
         }
         if otherValues.contains(where: { $0 > 0 }) {
             series.append(ChartSeries(
@@ -278,22 +299,38 @@ private struct ChartSeries: Identifiable {
     }
 }
 
-private struct DominanceStrip: View {
-    let snapshots: [MetricSnapshot]
-    let metric: MetricKind
+private struct ChartRenderData {
+    let series: [ChartSeries]
+    let maximum: Double
+    let dominanceColors: [Color]
 
-    var body: some View {
-        Canvas { context, size in
-            guard !snapshots.isEmpty else {
-                return
-            }
-            let width = size.width / CGFloat(snapshots.count)
-            for (index, snapshot) in snapshots.enumerated() {
+    @MainActor
+    static func make(from snapshots: [MetricSnapshot], metric: MetricKind) -> ChartRenderData {
+        ChartRenderData(
+            series: ChartSeries.make(from: snapshots, metric: metric),
+            maximum: StackedMetricChart.maximumYValue(for: snapshots, metric: metric),
+            dominanceColors: snapshots.map { snapshot in
                 guard let application = snapshot.applications.max(by: {
                     metric.value(for: $0) < metric.value(for: $1)
                 }) else {
-                    continue
+                    return Color.clear
                 }
+                return ApplicationPalette.color(for: application.identity)
+            }
+        )
+    }
+}
+
+private struct DominanceStrip: View {
+    let colors: [Color]
+
+    var body: some View {
+        Canvas { context, size in
+            guard !colors.isEmpty else {
+                return
+            }
+            let width = size.width / CGFloat(colors.count)
+            for (index, color) in colors.enumerated() {
                 context.fill(
                     Path(CGRect(
                         x: CGFloat(index) * width,
@@ -301,7 +338,7 @@ private struct DominanceStrip: View {
                         width: ceil(width) + 0.5,
                         height: size.height
                     )),
-                    with: .color(ApplicationPalette.color(for: application.identity))
+                    with: .color(color)
                 )
             }
         }
