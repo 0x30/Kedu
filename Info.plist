@@ -8,6 +8,8 @@
     <string>刻度</string>
     <key>CFBundleExecutable</key>
     <string>KeduMonitor</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>local.kedu.monitor</string>
     <key>CFBundleInfoDictionaryVersion</key>

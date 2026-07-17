@@ -1,4 +1,8 @@
-# 刻度
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="刻度图标">
+</p>
+
+<h1 align="center">刻度</h1>
 
 轻量的 macOS 应用级资源监控器。监控数据默认只保存在内存中，退出应用即清除。
 
