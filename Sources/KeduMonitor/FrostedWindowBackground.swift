@@ -29,3 +29,41 @@ struct FrostedWindowBackground: NSViewRepresentable {
         }
     }
 }
+
+struct EscapeKeyMonitor: NSViewRepresentable {
+    let onEscape: () -> Bool
+
+    final class Coordinator {
+        var monitor: Any?
+        var action: () -> Bool
+
+        init(action: @escaping () -> Bool) {
+            self.action = action
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: onEscape)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak view] event in
+            guard event.keyCode == 53, event.window === view?.window else {
+                return event
+            }
+            return context.coordinator.action() ? nil : event
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.action = onEscape
+    }
+}

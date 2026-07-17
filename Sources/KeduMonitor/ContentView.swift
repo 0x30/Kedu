@@ -51,6 +51,20 @@ struct ContentView: View {
             FrostedWindowBackground()
                 .ignoresSafeArea()
         }
+        .background {
+            EscapeKeyMonitor {
+                if showsApplications {
+                    inspectedSnapshot = nil
+                    showsApplications = false
+                    return true
+                }
+                if showsSettings {
+                    showsSettings = false
+                    return true
+                }
+                return false
+            }
+        }
         .animation(.easeOut(duration: 0.18), value: showsApplications)
     }
 
