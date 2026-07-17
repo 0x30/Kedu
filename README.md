@@ -16,7 +16,7 @@ swift run KeduMonitor
 生成可直接双击运行的应用：
 
 ```bash
-./scripts/build-app.sh
+./scripts/package-release.sh
 open "dist/刻度.app"
 ```
 
