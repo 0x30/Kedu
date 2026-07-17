@@ -50,10 +50,12 @@ struct ContentView: View {
                         }
                     )
                     .frame(width: 282)
+                    .frame(maxHeight: .infinity)
                     .transition(.move(edge: .trailing))
                 } else {
                     ToolboxDrawer(onClose: { showsToolbox = false })
                         .frame(width: 320)
+                        .frame(maxHeight: .infinity)
                         .transition(.move(edge: .trailing))
                 }
             }
@@ -267,37 +269,42 @@ private struct SummaryStrip: View {
                     showsApplications.toggle()
                 } label: {
                     Image(systemName: "sidebar.right")
-                        .frame(width: 17, height: 14)
+                        .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.borderless)
+                .foregroundStyle(showsApplications ? Color.accentColor : .secondary)
                 .help("应用")
-                Button {
-                    showsApplications = false
-                    onClearInspection()
-                    showsToolbox.toggle()
+                Divider().frame(width: 18)
+                Menu {
+                    Button {
+                        showsApplications = false
+                        onClearInspection()
+                        showsToolbox = true
+                    } label: {
+                        Label("工具箱", systemImage: "wrench.and.screwdriver")
+                    }
+                    Button {
+                        showsSettings = true
+                    } label: {
+                        Label("设置", systemImage: "slider.horizontal.3")
+                    }
                 } label: {
-                    Image(systemName: "wrench.and.screwdriver")
-                        .frame(width: 17, height: 14)
+                    Image(systemName: showsToolbox ? "wrench.and.screwdriver.fill" : "ellipsis")
+                        .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.borderless)
-                .help("工具箱")
-                Button {
-                    showsSettings.toggle()
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .frame(width: 17, height: 14)
-                }
-                .buttonStyle(.borderless)
-                .help("采样设置")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(showsToolbox ? Color.accentColor : .secondary)
+                .help("更多")
                 .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
                     SamplingSettingsView()
                         .environment(store)
                 }
             }
-            .frame(width: 28)
+            .frame(width: 34)
         }
-        .padding(.horizontal, 9)
-        .frame(height: 50)
+        .frame(height: 52)
         .background(.thinMaterial)
     }
 
@@ -324,7 +331,7 @@ private struct SummaryStrip: View {
                     .foregroundStyle(selection == category ? Color.teal : .secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value)
-                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
                     Text(unit)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -336,11 +343,13 @@ private struct SummaryStrip: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(selection == category ? Color.primary : Color.secondary)
-        .overlay(alignment: .leading) {
+        .background(selection == category ? Color.accentColor.opacity(0.065) : Color.clear)
+        .overlay(alignment: .bottom) {
             if selection == category {
                 Capsule()
                     .fill(Color.teal)
-                    .frame(width: 2, height: 30)
+                    .frame(height: 2)
+                    .padding(.horizontal, 12)
             }
         }
     }
@@ -405,6 +414,7 @@ private struct ApplicationDrawer: View {
                 }
             }
         }
+        .frame(maxHeight: .infinity)
         .background(.regularMaterial)
         .overlay(alignment: .leading) {
             Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1)
@@ -682,6 +692,7 @@ private struct ToolboxDrawer: View {
                 staleProcessList
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(.thickMaterial)
         .overlay(alignment: .leading) {
             Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1)
@@ -791,11 +802,19 @@ private struct ToolboxDrawer: View {
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if staleProcesses.isEmpty {
-            ContentUnavailableView(
-                "未发现遗留进程",
-                systemImage: "checkmark.circle",
-                description: Text("没有进程持有已删除的工作目录")
-            )
+            VStack(spacing: 10) {
+                Spacer()
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text("未发现遗留进程")
+                    .font(.callout.weight(.semibold))
+                Text("没有进程持有已删除的工作目录")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
