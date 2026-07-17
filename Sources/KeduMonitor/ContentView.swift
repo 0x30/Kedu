@@ -568,11 +568,16 @@ private struct ProcessDetailsView: View {
             VStack(alignment: .leading, spacing: 7) {
                 if let workingDirectory = details.workingDirectory {
                     detailRow(
-                        icon: "folder",
-                        value: workingDirectory,
-                        help: "在 Finder 中显示"
+                        icon: details.workingDirectoryExists ? "folder" : "folder.badge.questionmark",
+                        value: details.workingDirectoryExists ? workingDirectory : "\(workingDirectory)（已删除）",
+                        help: details.workingDirectoryExists ? "在 Finder 中显示" : "复制已删除的路径"
                     ) {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workingDirectory)
+                        if details.workingDirectoryExists {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: workingDirectory)
+                        } else {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(workingDirectory, forType: .string)
+                        }
                     }
                 }
                 if let command = details.command {

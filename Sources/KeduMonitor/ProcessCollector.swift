@@ -118,10 +118,14 @@ actor ProcessCollector {
         guard executablePath != nil || processName(for: pid) != nil else {
             return nil
         }
+        let workingDirectory = workingDirectory(for: pid)
         return ProcessDetails(
             pid: pid,
             executablePath: executablePath,
-            workingDirectory: workingDirectory(for: pid),
+            workingDirectory: workingDirectory,
+            workingDirectoryExists: workingDirectory.map {
+                FileManager.default.fileExists(atPath: $0)
+            } ?? false,
             arguments: arguments(for: pid)
         )
     }

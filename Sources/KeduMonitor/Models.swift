@@ -23,6 +23,7 @@ struct ProcessDetails: Sendable {
     let pid: Int32
     let executablePath: String?
     let workingDirectory: String?
+    let workingDirectoryExists: Bool
     let arguments: [String]
 
     var command: String? {
