@@ -206,6 +206,14 @@ struct SamplingSettingsView: View {
                 .disabled(store.snapshots.isEmpty)
             }
 
+            Divider()
+
+            Button("退出刻度", systemImage: "power") {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+
             if let exportError {
                 Text(exportError)
                     .font(.caption)

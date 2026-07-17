@@ -35,80 +35,87 @@ private struct MenuBarLauncher: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                MenuMetricValue(
-                    title: "CPU",
-                    value: String(format: "%.1f%%", store.latestSnapshot?.totalCPUPercent ?? 0),
-                    color: .cyan
-                )
-                Divider().frame(height: 30)
-                MenuMetricValue(
-                    title: "内存",
-                    value: memoryValue,
-                    color: .orange
-                )
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 54)
-
-            Divider()
-
-            VStack(spacing: 10) {
-                MenuTrendRow(
-                    title: "CPU",
-                    color: .cyan,
-                    values: recentSnapshots.map(\.totalCPUPercent),
-                    maximum: cpuMaximum
-                )
-                MenuTrendRow(
-                    title: "内存",
-                    color: .orange,
-                    values: recentSnapshots.map { Double($0.totalMemoryBytes) },
-                    maximum: Double(ProcessInfo.processInfo.physicalMemory)
-                )
-            }
-            .padding(12)
-
-            Divider()
-
-            HStack(spacing: 16) {
-                menuButton("macwindow", help: "显示窗口") {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                menuButton(store.isPaused ? "play.fill" : "pause.fill", help: store.isPaused ? "继续采样" : "暂停采样") {
-                    store.togglePause()
-                }
+            HStack(spacing: 12) {
+                MenuMetricValue(title: "CPU", value: cpuValue, color: .cyan)
+                MenuMetricValue(title: "内存", value: memoryValue, color: .orange)
+                Spacer(minLength: 0)
                 Button {
                     showsSettings.toggle()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
+                        .frame(width: 16, height: 16)
                 }
                 .buttonStyle(.borderless)
-                .help("采样设置")
+                .foregroundStyle(.secondary)
+                .help("设置")
                 .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
                     SamplingSettingsView()
                         .environment(store)
                 }
-                Spacer()
-                menuButton("power", help: "退出") {
-                    NSApp.terminate(nil)
-                }
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .frame(height: 42)
+            .padding(.horizontal, 10)
+            .frame(height: 44)
+
+            Divider()
+
+            Button(action: openMainWindow) {
+                VStack(spacing: 7) {
+                    MenuTrendRow(
+                        symbol: "cpu",
+                        series: [MenuTrendSeries(values: recentSnapshots.map(\.totalCPUPercent), color: .cyan)],
+                        maximum: cpuMaximum,
+                        help: "CPU"
+                    )
+                    MenuTrendRow(
+                        symbol: "memorychip",
+                        series: [MenuTrendSeries(
+                            values: recentSnapshots.map { Double($0.totalMemoryBytes) },
+                            color: .orange
+                        )],
+                        maximum: Double(ProcessInfo.processInfo.physicalMemory),
+                        help: "内存"
+                    )
+                    MenuTrendRow(
+                        symbol: "internaldrive",
+                        series: [
+                            MenuTrendSeries(values: recentSnapshots.map(\.totalDiskReadBytesPerSecond), color: .cyan),
+                            MenuTrendSeries(values: recentSnapshots.map(\.totalDiskWriteBytesPerSecond), color: .orange),
+                        ],
+                        maximum: diskMaximum,
+                        help: "磁盘：青色读取，橙色写入",
+                        showsDirections: true
+                    )
+                    MenuTrendRow(
+                        symbol: "network",
+                        series: [
+                            MenuTrendSeries(values: recentSnapshots.map(\.totalNetworkDownloadBytesPerSecond), color: .cyan),
+                            MenuTrendSeries(values: recentSnapshots.map(\.totalNetworkUploadBytesPerSecond), color: .orange),
+                        ],
+                        maximum: networkMaximum,
+                        help: "网络：青色下载，橙色上传",
+                        showsDirections: true
+                    )
+                }
+                .padding(9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("打开刻度")
         }
-        .frame(width: 286)
+        .frame(width: 250)
     }
 
     private var recentSnapshots: [MetricSnapshot] {
         Array(store.displaySnapshots(maximumCount: 48).suffix(48))
     }
 
+    private var cpuValue: String {
+        String(format: "%.1f%%", store.latestSnapshot?.totalCPUPercent ?? 0)
+    }
+
     private var memoryValue: String {
         let gigabytes = Double(store.latestSnapshot?.totalMemoryBytes ?? 0) / 1_073_741_824
-        return String(format: "%.1f GB", gigabytes)
+        return String(format: "%.1fG", gigabytes)
     }
 
     private var cpuMaximum: Double {
@@ -116,17 +123,27 @@ private struct MenuBarLauncher: View {
         return max(5, min(100, ceil(observed / 5) * 5))
     }
 
-    private func menuButton(
-        _ systemName: String,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .frame(width: 16, height: 16)
-        }
-        .buttonStyle(.borderless)
-        .help(help)
+    private var diskMaximum: Double {
+        maximum(
+            recentSnapshots.map(\.totalDiskReadBytesPerSecond),
+            recentSnapshots.map(\.totalDiskWriteBytesPerSecond)
+        )
+    }
+
+    private var networkMaximum: Double {
+        maximum(
+            recentSnapshots.map(\.totalNetworkDownloadBytesPerSecond),
+            recentSnapshots.map(\.totalNetworkUploadBytesPerSecond)
+        )
+    }
+
+    private func maximum(_ first: [Double], _ second: [Double]) -> Double {
+        max(1, max(first.max() ?? 0, second.max() ?? 0) * 1.12)
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -136,62 +153,83 @@ private struct MenuMetricValue: View {
     let color: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Circle().fill(color).frame(width: 6, height: 6)
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .font(.system(.caption, design: .monospaced, weight: .semibold))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
+        .fixedSize()
     }
 }
 
-private struct MenuTrendRow: View {
-    let title: String
-    let color: Color
+private struct MenuTrendSeries {
     let values: [Double]
+    let color: Color
+}
+
+private struct MenuTrendRow: View {
+    let symbol: String
+    let series: [MenuTrendSeries]
     let maximum: Double
+    let help: String
+    var showsDirections = false
 
     var body: some View {
-        HStack(spacing: 9) {
-            Text(title)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, alignment: .trailing)
-            Sparkline(values: values, maximum: maximum, color: color)
-                .frame(height: 42)
+        HStack(spacing: 7) {
+            VStack(spacing: 2) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10))
+                if showsDirections {
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.down")
+                            .foregroundStyle(Color.cyan)
+                        Image(systemName: "arrow.up")
+                            .foregroundStyle(Color.orange)
+                    }
+                    .font(.system(size: 7, weight: .semibold))
+                }
+            }
+            .foregroundStyle(.secondary)
+            .frame(width: 24)
+
+            Sparkline(series: series, maximum: maximum)
+                .frame(height: 31)
         }
+        .help(help)
     }
 }
 
 private struct Sparkline: View {
-    let values: [Double]
+    let series: [MenuTrendSeries]
     let maximum: Double
-    let color: Color
 
     var body: some View {
         Canvas { context, size in
-            guard values.count > 1, maximum > 0 else {
+            guard maximum > 0 else {
                 return
             }
-            let denominator = CGFloat(values.count - 1)
-            var path = Path()
-            for (index, value) in values.enumerated() {
-                let point = CGPoint(
-                    x: size.width * CGFloat(index) / denominator,
-                    y: size.height * (1 - CGFloat(min(1, max(0, value / maximum))))
+            for item in series where item.values.count > 1 {
+                let denominator = CGFloat(item.values.count - 1)
+                var path = Path()
+                for (index, value) in item.values.enumerated() {
+                    let point = CGPoint(
+                        x: size.width * CGFloat(index) / denominator,
+                        y: size.height * (1 - CGFloat(min(1, max(0, value / maximum))))
+                    )
+                    index == 0 ? path.move(to: point) : path.addLine(to: point)
+                }
+                context.stroke(
+                    path,
+                    with: .color(item.color),
+                    style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
                 )
-                index == 0 ? path.move(to: point) : path.addLine(to: point)
             }
-            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
         }
         .background {
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 3)
                 .fill(Color.primary.opacity(0.035))
         }
     }
