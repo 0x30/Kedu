@@ -264,27 +264,30 @@ private struct SummaryStrip: View {
                 unit: "MB/s"
             )
             Divider()
-            Button {
-                onClearInspection()
-                showsApplications.toggle()
-            } label: {
-                Image(systemName: "sidebar.right")
-                    .frame(width: 18, height: 18)
+            VStack(spacing: 0) {
+                Button {
+                    onClearInspection()
+                    showsApplications.toggle()
+                } label: {
+                    Image(systemName: "sidebar.right")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .help("应用")
+                Button {
+                    showsSettings.toggle()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .help("采样设置")
+                .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
+                    SamplingSettingsView()
+                        .environment(store)
+                }
             }
-            .buttonStyle(.borderless)
-            .help("应用")
-            Button {
-                showsSettings.toggle()
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.borderless)
-            .help("采样设置")
-            .popover(isPresented: $showsSettings, arrowEdge: .bottom) {
-                SamplingSettingsView()
-                    .environment(store)
-            }
+            .frame(width: 28)
         }
         .padding(.horizontal, 9)
         .frame(height: 50)
