@@ -38,13 +38,17 @@ jobs:
           security unlock-keychain -p ci ci.keychain
           security import cert.p12 -k ci.keychain -P "$CERT_PWD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k ci ci.keychain
-          CN=$(security find-identity -v -p codesigning ci.keychain | sed -n 's/.*"\(.*\)"/\1/p' | head -1)
+          openssl pkcs12 -in cert.p12 -clcerts -nokeys -out cert.pem -passin pass:"$CERT_PWD" -legacy 2>/dev/null \
+            || openssl pkcs12 -in cert.p12 -clcerts -nokeys -out cert.pem -passin pass:"$CERT_PWD"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+            -k /Library/Keychains/System.keychain cert.pem
+          CN=$(openssl x509 -in cert.pem -noout -subject -nameopt multiline | awk -F'= ' '/commonName/{print $2}')
           if [ -z "$CN" ]; then
             echo "No valid code-signing identity found" >&2
             exit 1
           fi
           echo "KEDU_SIGN_ID=$CN" >> "$GITHUB_ENV"
-          rm -f cert.p12
+          rm -f cert.p12 cert.pem
 
       - name: Build release archive
         env:

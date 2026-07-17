@@ -27,10 +27,3 @@ open "dist/刻度.app"
 ```
 
 要求 macOS 14 或更高版本，以及 Xcode 16 或更高版本。
-
-## 发布签名
-
-未配置证书时，CI 使用 ad-hoc 签名。需要稳定签名时，在仓库 Secrets 中配置：
-
-- `KEDU_CERT_P12`：P12 文件的 Base64 内容
-- `KEDU_CERT_PWD`：P12 密码
