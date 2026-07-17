@@ -37,8 +37,6 @@ struct ContentView: View {
         }
         .background(Color(nsColor: .underPageBackgroundColor).opacity(0.32))
         .animation(.easeOut(duration: 0.18), value: showsApplications)
-        .task { store.start() }
-        .onDisappear { store.stop() }
     }
 
     private var chartContent: some View {
