@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var category = MetricCategory.cpu
     @State private var direction = TransferDirection.incoming
     @State private var showsApplications = false
+    @State private var showsToolbox = false
     @State private var inspectedSnapshot: MetricSnapshot?
     @State private var showsSettings = false
 
@@ -20,6 +21,7 @@ struct ContentView: View {
                     snapshot: store.latestSnapshot,
                     selection: $category,
                     showsApplications: $showsApplications,
+                    showsToolbox: $showsToolbox,
                     showsSettings: $showsSettings,
                     onClearInspection: { inspectedSnapshot = nil }
                 )
@@ -27,24 +29,33 @@ struct ContentView: View {
                 chartContent
             }
 
-            if showsApplications {
+            if showsApplications || showsToolbox {
                 Color.black.opacity(0.025)
                     .contentShape(Rectangle())
-                    .onTapGesture { showsApplications = false }
+                    .onTapGesture {
+                        showsApplications = false
+                        showsToolbox = false
+                    }
                     .transition(.opacity)
 
-                ApplicationDrawer(
-                    snapshot: inspectedSnapshot ?? store.latestSnapshot,
-                    metric: metric,
-                    isHistorical: inspectedSnapshot != nil,
-                    onShowLive: { inspectedSnapshot = nil },
-                    onClose: {
-                        inspectedSnapshot = nil
-                        showsApplications = false
-                    }
-                )
-                .frame(width: 282)
-                .transition(.move(edge: .trailing))
+                if showsApplications {
+                    ApplicationDrawer(
+                        snapshot: inspectedSnapshot ?? store.latestSnapshot,
+                        metric: metric,
+                        isHistorical: inspectedSnapshot != nil,
+                        onShowLive: { inspectedSnapshot = nil },
+                        onClose: {
+                            inspectedSnapshot = nil
+                            showsApplications = false
+                        }
+                    )
+                    .frame(width: 282)
+                    .transition(.move(edge: .trailing))
+                } else {
+                    ToolboxDrawer(onClose: { showsToolbox = false })
+                        .frame(width: 320)
+                        .transition(.move(edge: .trailing))
+                }
             }
         }
         .background {
@@ -56,6 +67,10 @@ struct ContentView: View {
                 if showsApplications {
                     inspectedSnapshot = nil
                     showsApplications = false
+                    return true
+                }
+                if showsToolbox {
+                    showsToolbox = false
                     return true
                 }
                 if showsSettings {
@@ -215,6 +230,7 @@ private struct SummaryStrip: View {
     let snapshot: MetricSnapshot?
     @Binding var selection: MetricCategory
     @Binding var showsApplications: Bool
+    @Binding var showsToolbox: Bool
     @Binding var showsSettings: Bool
     let onClearInspection: () -> Void
     @Environment(MonitorStore.self) private var store
@@ -247,18 +263,29 @@ private struct SummaryStrip: View {
             VStack(spacing: 0) {
                 Button {
                     onClearInspection()
+                    showsToolbox = false
                     showsApplications.toggle()
                 } label: {
                     Image(systemName: "sidebar.right")
-                        .frame(width: 20, height: 20)
+                        .frame(width: 17, height: 14)
                 }
                 .buttonStyle(.borderless)
                 .help("应用")
                 Button {
+                    showsApplications = false
+                    onClearInspection()
+                    showsToolbox.toggle()
+                } label: {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .frame(width: 17, height: 14)
+                }
+                .buttonStyle(.borderless)
+                .help("工具箱")
+                Button {
                     showsSettings.toggle()
                 } label: {
                     Image(systemName: "slider.horizontal.3")
-                        .frame(width: 20, height: 20)
+                        .frame(width: 17, height: 14)
                 }
                 .buttonStyle(.borderless)
                 .help("采样设置")
@@ -632,6 +659,236 @@ private struct ProcessDetailsView: View {
         .buttonStyle(.plain)
         .help(help)
     }
+}
+
+private struct ToolboxDrawer: View {
+    @Environment(MonitorStore.self) private var store
+    let onClose: () -> Void
+
+    @State private var page = ToolboxPage.grid
+    @State private var staleProcesses: [StaleProcess] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var confirmsStopAll = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            switch page {
+            case .grid:
+                toolGrid
+            case .staleProcesses:
+                staleProcessList
+            }
+        }
+        .background(.thickMaterial)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 18, x: -8)
+        .task { await refresh() }
+        .alert("停止全部遗留进程？", isPresented: $confirmsStopAll) {
+            Button("取消", role: .cancel) {}
+            Button("停止全部", role: .destructive) {
+                stopAll()
+            }
+        } message: {
+            Text("将向列表中的 \(staleProcesses.count) 个进程发送 SIGTERM。")
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 9) {
+            if page != .grid {
+                Button {
+                    page = .grid
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help("返回工具箱")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(page == .grid ? "工具箱" : "失效工作目录")
+                    .font(.headline)
+                Text(page == .grid ? "1 个工具" : "\(staleProcesses.count) 个进程")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if page == .staleProcesses {
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("重新扫描")
+                Button {
+                    confirmsStopAll = true
+                } label: {
+                    Image(systemName: "stop.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(staleProcesses.isEmpty)
+                .help("停止全部")
+            }
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("关闭工具箱")
+        }
+        .padding(.horizontal, 13)
+        .frame(height: 54)
+    }
+
+    private var toolGrid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.flexible()), GridItem(.flexible())],
+                spacing: 9
+            ) {
+                Button {
+                    page = .staleProcesses
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "folder.badge.questionmark")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Text("\(staleProcesses.count)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 3)
+                        Text("遗留进程")
+                            .font(.callout.weight(.semibold))
+                        Text("工作目录已删除")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.primary.opacity(0.08))
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+        }
+    }
+
+    @ViewBuilder
+    private var staleProcessList: some View {
+        if isLoading, staleProcesses.isEmpty {
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if staleProcesses.isEmpty {
+            ContentUnavailableView(
+                "未发现遗留进程",
+                systemImage: "checkmark.circle",
+                description: Text("没有进程持有已删除的工作目录")
+            )
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
+                    ForEach(staleProcesses) { process in
+                        staleProcessRow(process)
+                        Divider().padding(.leading, 40)
+                    }
+                }
+            }
+        }
+    }
+
+    private func staleProcessRow(_ process: StaleProcess) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "terminal")
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(process.name)
+                        .font(.callout.weight(.medium))
+                    Text("PID \(process.pid) · PPID \(process.parentPID)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+                Text(process.workingDirectory)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                if let command = process.command {
+                    Text(command)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 4)
+            Button {
+                stop(process)
+            } label: {
+                Image(systemName: "stop.fill")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.red)
+            .help("停止进程")
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+    }
+
+    private func refresh() async {
+        isLoading = true
+        staleProcesses = await store.staleWorkingDirectoryProcesses()
+        isLoading = false
+    }
+
+    private func stop(_ process: StaleProcess) {
+        Task {
+            if let error = await store.terminateProcess(process.pid) {
+                errorMessage = "无法停止 PID \(process.pid)：\(error)"
+                return
+            }
+            errorMessage = nil
+            try? await Task.sleep(for: .milliseconds(350))
+            await refresh()
+        }
+    }
+
+    private func stopAll() {
+        Task {
+            for process in staleProcesses {
+                if let error = await store.terminateProcess(process.pid) {
+                    errorMessage = "无法停止 PID \(process.pid)：\(error)"
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(350))
+            await refresh()
+        }
+    }
+}
+
+private enum ToolboxPage {
+    case grid
+    case staleProcesses
 }
 
 private enum ApplicationDisplayMode: Hashable {
