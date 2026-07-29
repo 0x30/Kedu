@@ -1,50 +1,44 @@
 # 当前项目状态
 
-最后同步：2026-07-17
+最后同步：2026-07-29
 
 ## 已完成
 
-- 原生 SwiftUI 菜单栏应用，无 Dock 图标。
-- 唯一主窗口，关闭后仍持续采集。
-- CPU、内存、磁盘、网络按 PID 采集并按应用聚合。
-- 进程 CPU 与活动监视器口径一致。
-- 默认 5 秒采样、30 分钟内存保留，可配置。
-- 自绘堆叠面积图、自适应纵轴、低对比度 X/Y 轴。
-- 历史时刻点击和应用/PID 抽屉。
-- PID 启动命令、cwd、可执行路径按需查看。
-- 菜单栏四类趋势图。
-- 工具箱网格和“遗留进程”清理工具。
-- CSV 导出。
-- 自定义应用图标。
-- Release ZIP、SHA-256、GitHub Actions 自动更新说明。
+- 从 SwiftUI 菜单栏应用完全重写为 Rust 2024 + Ratatui TUI。
+- 单一 `kedu` 二进制，包含 CLI、隐藏 daemon 和 TUI 客户端。
+- `kedu start/stop/restart/status` 用户级 launchd 服务管理。
+- TOML 配置初始化、校验和路径查询。
+- Unix Socket IPC，权限限制为当前用户 `0600`。
+- daemon 内存环形历史，旧快照只保留应用汇总，最新快照保留 PID。
+- macOS libproc CPU、physical footprint、磁盘累计计数采集。
+- nettop 单帧网络采集和应用/PID 速率聚合。
+- 最外层 `.app` 和父进程应用归属。
+- Ratatui 半格彩色堆叠图、鼠标悬浮、应用/PID 面板。
+- ARM64/Intel Release 压缩包、SHA-256、GitHub Actions 和 Formula 模板。
+- 本地 `homebrew-tap` 仓库已加入 Kedu Formula、校验值更新脚本和自动更新 PR 工作流。
 
-## 当前验证基线
+## 验证基线
 
-- 测试：16 项，6 个 Suite。
-- 密集图表测试：360 个采样点、每点 120 个应用，渲染模型目标小于 1 秒。
-- 打包产物：`dist/KeduMonitor-macOS.zip`。
-- 仓库：`git@github.com:0x30/Kedu.git`。
-- 分支：`main`。
+- `cargo check --all-targets` 通过。
+- `cargo test --all-targets`：22 项通过。
+- `cargo clippy --all-targets -- -D warnings` 通过。
+- 图表测试使用 Ratatui `TestBackend` 渲染 360 个采样点。
+- 采集测试包含真实 libproc 进程扫描。
 
-## 已知限制
+## 当前限制
 
-- 未做 Apple notarization；自签或 ad-hoc 构建首次打开可能需要清除 quarantine。
-- 网络依赖 `/usr/bin/nettop`，系统格式变化可能影响解析。
-- 无权限读取的系统进程可能缺少路径、参数或 cwd。
-- 历史 PID 已退出后，历史指标仍在，但无法再读取启动命令。
-- `systemCPUPercent` 是进程 CPU 合计除以逻辑核心数的近似整机负载，不包含无法读取的进程或内核全部调度细节。
-- 内存使用 physical footprint 合计，不等同于内存压力。
-- 工具箱停止操作只发送 `SIGTERM`，不会强制杀死拒绝退出的进程。
+- 仅支持 macOS 14+。
+- 网络依赖 `/usr/bin/nettop`，系统输出格式变化可能影响解析。
+- 历史只在 daemon 内存中；停止或重启服务后清空。
+- 历史快照不保留 PID 列表，PID 面板只展示当前时刻。
+- 终端图表精度受字符单元尺寸限制。
+- 鼠标功能取决于终端是否支持 mouse reporting。
+- Homebrew Formula 的校验值需要在首个正式 Release 后更新。
 
-## 近期可选方向
+## 后续方向
 
-- 将 `ContentView.swift` 拆分为 Dashboard、ApplicationDrawer、Toolbox 三个文件，降低单文件复杂度。
-- 为工具箱建立独立工具协议/模型，减少新增工具时修改主视图。
-- 增加应用过滤、固定系列或隐藏系列交互。
-- 增加网络/磁盘采集失败的诊断详情。
-- 若需要公开分发，接入 Developer ID、notarization 和 stapling。
-- 增加 UI 自动化或快照测试；目前主要依赖构建、逻辑测试和人工运行验证。
-
-## Git 状态说明
-
-本地开发可能领先 `origin/main`。用 `git status -sb` 查看实时状态；推送 `main` 会触发 Release 工作流，推送前先确认 `.github-secrets/` 仍被忽略。
+- 增加多层时间桶，让 24 小时以上历史保持较低内存占用。
+- 增加 daemon 配置热重载。
+- 补充 Unix Socket 集成测试和 PTY 端到端测试。
+- 为图表增加可见系列开关和时间缩放。
+- 首个 Release 后运行 Tap 更新脚本，替换 Formula 校验值并推送 Tap 首次提交。

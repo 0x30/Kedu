@@ -5,3 +5,5 @@ DerivedData/
 dist/
 *.xcodeproj/xcuserdata/
 .DS_Store
+target/
+*.log

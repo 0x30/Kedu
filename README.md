@@ -1,58 +1,112 @@
-<p align="center">
-  <img src="docs/icon.png" width="128" alt="刻度图标">
-</p>
+# 刻度
 
-<h1 align="center">刻度</h1>
+刻度是面向 macOS 14+ 的应用级终端资源监控器。后台服务持续采集 CPU、内存、磁盘和网络数据，`kedu` 随时连接服务并用彩色堆叠图展示历史。
 
-<p align="center">轻量的 macOS 应用级资源监控器</p>
-
-刻度在菜单栏后台采集 CPU、内存、磁盘和网络指标，按应用聚合并用堆叠面积图展示。数据默认只保存在内存中，退出应用即清除。
+数据默认只保存在后台服务内存中。退出 TUI 不会停止采集，执行 `kedu stop` 后历史清空。
 
 ## 功能
 
-- 每 5 秒采样，默认保留最近 30 分钟；间隔和保留时长可调整。
-- Chrome、Electron 等多进程应用按最外层 `.app` 聚合。
-- CPU 进程口径与活动监视器一致：一个逻辑核心为 `100%`。
-- 磁盘展示读取/写入，网络展示下载/上传。
-- 自绘堆叠面积图支持悬浮详情和点击历史时刻。
-- 应用抽屉可展开到 PID，并查看启动命令、工作目录和可执行文件。
-- 菜单栏浮层提供 CPU、内存、磁盘、网络近期趋势。
-- 工具箱可查找持有已删除工作目录的遗留进程，并发送 `SIGTERM`。
-- 会话数据可导出为 CSV。
-- 无 Dock 图标；关闭主窗口后继续采集。
+- 使用 `launchd` 作为当前用户的常驻服务，异常退出后自动拉起。
+- CPU、内存、磁盘和网络按 PID 采集并按应用聚合。
+- Chrome、Electron 等 Helper 归属最外层 `.app`。
+- 进程 CPU 口径与活动监视器一致：一个逻辑核心为 `100%`。
+- Ratatui 彩色堆叠面积图，保持前 7 个应用 + “其他”。
+- 支持键盘选择指标、历史时刻、应用和 PID。
+- 支持鼠标悬浮历史、点击应用和滚轮选择。
+- TOML 配置采样频率、保留时长、指标和显示参数。
+- 无进程终止、命令读取或工作目录诊断功能，只做只读监控。
 
-## 下载
+## 安装
 
-从 [GitHub Releases](https://github.com/0x30/Kedu/releases) 下载 `KeduMonitor-macOS.zip`，解压后将 `刻度.app` 拖入“应用程序”。
-
-若 macOS 阻止打开未公证构建：
+首个 Release 发布后可通过项目 Tap 安装：
 
 ```bash
-xattr -cr /Applications/刻度.app
+brew tap 0x30/tap
+brew install kedu
 ```
 
-要求 macOS 14 或更高版本。
+当前源码构建：
+
+```bash
+cargo install --path .
+```
+
+## 使用
+
+```bash
+kedu start          # 启动常驻监控服务
+kedu                # 打开 TUI
+kedu status         # 查看服务状态
+kedu restart        # 配置修改后重启
+kedu stop           # 停止服务并清除内存历史
+```
+
+首次 `kedu start` 会创建：
+
+```text
+~/.config/kedu/config.toml
+```
+
+也可以手动管理：
+
+```bash
+kedu config init
+kedu config check
+kedu config path
+```
+
+## 默认配置
+
+```toml
+version = 1
+
+[sampling]
+interval = "5s"
+retention = "30m"
+maximum_samples = 21600
+
+[metrics]
+cpu = true
+memory = true
+disk = true
+network = true
+
+[display]
+top_applications = 7
+maximum_chart_points = 600
+mouse = true
+color = "auto"
+
+[daemon]
+log_level = "warn"
+```
+
+配置修改后运行 `kedu restart`。采样间隔不能小于 1 秒。
+
+## TUI 操作
+
+```text
+Tab       切换 CPU / 内存 / 磁盘 / 网络
+d         切换读取/写入或下载/上传
+← →       选择历史采样点
+↑ ↓       选择应用
+鼠标移动   查看历史位置
+鼠标点击   选择应用
+滚轮       选择应用
+q / Esc   退出 TUI，后台继续采集
+```
 
 ## 开发
 
-要求 Xcode 26 或兼容的 Swift 6.2 工具链。
-
 ```bash
-swift build
-swift test
-swift run KeduMonitor
+cargo fmt --all --check
+cargo check --all-targets
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
 ```
 
-生成可双击运行的应用和 Release ZIP：
+更多信息：
 
-```bash
-./scripts/package-release.sh
-open "dist/刻度.app"
-```
-
-## 文档
-
-- [架构与数据口径](docs/ARCHITECTURE.md)
+- [架构与指标口径](docs/ARCHITECTURE.md)
 - [开发与发布](docs/DEVELOPMENT.md)
-- [当前项目状态](docs/STATUS.md)
-- [AI 开发指南](AGENTS.md)
+- [当前状态](docs/STATUS.md)

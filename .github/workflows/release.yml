@@ -2,96 +2,84 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    runs-on: macos-26
+  build:
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust target
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Run tests
-        run: swift test
+        run: cargo test --all-targets --all-features
 
-      - name: Import signing certificate
+      - name: Verify release version
         env:
-          CERT_P12: ${{ secrets.KEDU_CERT_P12 }}
-          CERT_PWD: ${{ secrets.KEDU_CERT_PWD }}
+          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          if [ -z "$CERT_P12" ]; then
-            echo "No signing certificate configured; using ad-hoc signing"
-            exit 0
-          fi
-          echo "$CERT_P12" | base64 -d > cert.p12
-          security create-keychain -p ci ci.keychain
-          security default-keychain -s ci.keychain
-          security unlock-keychain -p ci ci.keychain
-          security import cert.p12 -k ci.keychain -P "$CERT_PWD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci ci.keychain
-          openssl pkcs12 -in cert.p12 -clcerts -nokeys -out cert.pem -passin pass:"$CERT_PWD" -legacy 2>/dev/null \
-            || openssl pkcs12 -in cert.p12 -clcerts -nokeys -out cert.pem -passin pass:"$CERT_PWD"
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign \
-            -k /Library/Keychains/System.keychain cert.pem
-          CN=$(openssl x509 -in cert.pem -noout -subject -nameopt multiline | awk -F'= ' '/commonName/{print $2}')
-          if [ -z "$CN" ]; then
-            echo "No valid code-signing identity found" >&2
-            exit 1
-          fi
-          echo "KEDU_SIGN_ID=$CN" >> "$GITHUB_ENV"
-          rm -f cert.p12 cert.pem
+          PACKAGE_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(any(.targets[]; .name == "kedu" and (.kind | index("bin")))) | .version' | head -1)
+          test -n "$PACKAGE_VERSION"
+          test "$PACKAGE_VERSION" = "${RELEASE_VERSION#v}"
 
       - name: Build release archive
         env:
-          KEDU_BUILD: ${{ github.run_number }}
-        run: |
-          MARKETING="0.1.$(git rev-list --count HEAD)"
-          echo "KEDU_MARKETING=$MARKETING" >> "$GITHUB_ENV"
-          KEDU_VERSION="$MARKETING" ./scripts/package-release.sh
-          cd dist
-          shasum -a 256 -c KeduMonitor-macOS.zip.sha256
-          codesign --verify --deep --strict --verbose=2 "刻度.app"
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: ./scripts/package-release.sh "${{ matrix.target }}" "${RELEASE_VERSION#v}"
 
-      - name: Generate release notes
-        run: |
-          PREV_TAG=$(git tag --list 'build-*' --sort=-v:refname | head -1)
-          {
-            echo "自动构建自 \`${GITHUB_SHA::8}\`。"
-            echo
-            if [ -n "$PREV_TAG" ]; then
-              echo "### 自 ${PREV_TAG} 以来的变更"
-              echo
-              git log "${PREV_TAG}..HEAD" --pretty=format:'- %s'
-            else
-              echo "### 变更"
-              echo
-              git log --pretty=format:'- %s' -30
-            fi
-            echo
-            echo
-            echo "### 安装"
-            echo
-            echo "下载 \`KeduMonitor-macOS.zip\`，解压后将 \`刻度.app\` 拖入「应用程序」。"
-            echo
-            echo "> 若构建未经过 Apple 公证，首次打开被系统拦截，请执行："
-            echo "> \`xattr -cr /Applications/刻度.app\`"
-          } > release-notes.md
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: kedu-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: kedu-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksum manifest
+        working-directory: dist
+        run: shasum -a 256 *.tar.gz > checksums.txt
+
+      - name: Verify archives
+        working-directory: dist
+        run: shasum -a 256 -c checksums.txt
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: 刻度 ${{ env.KEDU_MARKETING }} (build ${{ github.run_number }})
-          body_path: release-notes.md
+          generate_release_notes: true
           files: |
-            dist/KeduMonitor-macOS.zip
-            dist/KeduMonitor-macOS.zip.sha256
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/checksums.txt

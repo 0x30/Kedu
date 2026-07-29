@@ -1,0 +1,34 @@
+[package]
+name = "kedu"
+version = "0.1.0"
+edition = "2024"
+description = "A native macOS per-application resource monitor for the terminal"
+license = "MIT"
+repository = "https://github.com/0x30/Kedu"
+rust-version = "1.85"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
+dirs = "6.0"
+humantime-serde = "1.1"
+ratatui = "0.30.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.53", features = ["full"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"

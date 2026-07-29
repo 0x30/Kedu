@@ -3,116 +3,118 @@
 ## 环境
 
 - macOS 14+
-- Xcode 26 或兼容的 Swift 6.2 工具链
-- Swift 6.2
-- Swift Package Manager
-
-项目没有第三方运行时依赖，也没有 Xcode 工程文件。
+- Rust 1.85+，edition 2024
+- Xcode Command Line Tools
+- Homebrew，仅用于 Formula 验证
 
 ## 常用命令
 
 ```bash
-# 编译 Debug
-swift build
-
-# 运行全部测试
-swift test
-
-# 直接运行 Debug 可执行文件
-swift run KeduMonitor
-
-# 生成 Release .app、ZIP 和 SHA-256
-./scripts/package-release.sh
-
-# 打开打包后的应用
-open "dist/刻度.app"
+cargo fmt --all --check
+cargo check --all-targets
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo run -- --help
 ```
 
-重启当前本地构建：
+前台调试 daemon：
 
 ```bash
-pkill -x KeduMonitor || true
-open "dist/刻度.app"
+RUST_LOG=debug cargo run -- daemon
+```
+
+另一个终端运行：
+
+```bash
+cargo run
+```
+
+调试 launchd：
+
+```bash
+cargo run -- start
+cargo run -- status
+cargo run
+cargo run -- stop
 ```
 
 ## 目录
 
 ```text
-Assets/                      图标母版、iconset、icns
-Sources/KeduMonitor/         应用源码
-Tests/KeduMonitorTests/      Swift Testing 测试
-docs/                        架构、开发、状态文档
-scripts/build-app.sh         组装并签名 .app
-scripts/package-release.sh   生成 ZIP 与 SHA-256
-scripts/generate-signing-secrets.sh
-.github/workflows/ci.yml     PR / 手动测试
-.github/workflows/release.yml main 推送自动 Release
-Info.plist                   Bundle 元数据模板
-Package.swift                SwiftPM 清单
+src/collector/             macOS 采集
+src/config.rs              配置
+src/history.rs             内存历史
+src/ipc.rs                 Unix Socket 协议
+src/daemon.rs              常驻服务
+src/launchd.rs             launchctl 管理
+src/tui.rs                 Ratatui 界面
+src/main.rs                CLI
+Formula/kedu.rb            Homebrew Formula 模板
+scripts/package-release.sh Release 打包
+.github/workflows/         CI 和 Release
 ```
 
 ## 修改流程
 
-本仓库约定每个独立功能单独提交：
+1. 阅读 `README.md`、`docs/STATUS.md`、`docs/ARCHITECTURE.md` 和本文档。
+2. 保持采集、daemon、TUI 和发布模块边界。
+3. 修改后运行格式化、检查、测试和 Clippy。
+4. 采集口径修改必须补测试并同步架构文档。
+5. CLI、配置或用户功能修改必须同步 README 和状态文档。
+6. 提交前运行 `git diff --check` 和 `git status --short`。
 
-1. 先阅读相关源文件和测试。
-2. 保持改动范围最小，避免把 UI、采集和发布修改混入一个提交。
-3. 使用 `apply_patch` 编辑代码。
-4. 至少运行 `swift build && swift test`。
-5. UI 或打包变更还需运行 `./scripts/package-release.sh`。
-6. 验证 ZIP 和签名：
+## 测试
+
+- 采集：累计计数、CPU 口径、`.app` 根路径、父进程归属、真实进程扫描。
+- 网络：nettop 行解析、累计速率和计数回退。
+- 历史：PID 压缩、按时间和数量裁剪。
+- 配置：默认值往返和非法采样间隔。
+- launchd：plist 内容、XML 转义和状态解析。
+- TUI：Ratatui `TestBackend` 密集堆叠图渲染和下采样。
+
+## Release
+
+本地生成当前架构压缩包：
 
 ```bash
-cd dist
-shasum -a 256 -c KeduMonitor-macOS.zip.sha256
-codesign --verify --deep --strict --verbose=2 "刻度.app"
+TARGET=$(rustc -vV | awk '/^host:/{print $2}')
+./scripts/package-release.sh "$TARGET" 0.1.0
 ```
 
-7. 检查 `git diff --check` 和 `git status --short` 后提交。
-
-## 测试覆盖
-
-- `ProcessCollectorTests`：应用根路径、CPU 口径、参数解析、进程扫描、已删除 cwd 检测。
-- `NetworkCollectorTests`：`nettop` 解析、速率差值、真实单帧采集。
-- `MonitorStoreTests`：历史保留和下采样。
-- `ChartRenderDataTests`：360 点 × 120 应用的密集图表模型。
-- `MetricSelectionTests`：单位转换。
-- `SessionExporterTests`：CSV 字段和转义。
-
-真实系统测试会短暂启动 `sleep` 或 `nettop`，测试结束负责清理。
-
-## 打包和版本
-
-`scripts/build-app.sh [debug|release]`：
-
-- 版本默认是 `0.1.<git commit count>`。
-- Build 默认是 `dev.<short hash>`，工作区脏时追加 `+`。
-- CI 可通过 `KEDU_VERSION`、`KEDU_BUILD` 注入版本。
-- `KEDU_SIGN_ID` 为空时使用 ad-hoc 签名。
-
-`scripts/package-release.sh` 输出：
+输出：
 
 ```text
-dist/刻度.app
-dist/KeduMonitor-macOS.zip
-dist/KeduMonitor-macOS.zip.sha256
+dist/kedu-0.1.0-<target>.tar.gz
+dist/kedu-0.1.0-<target>.tar.gz.sha256
 ```
 
-## GitHub Actions
+推送 `v*` 标签触发 Release 工作流，构建 ARM64 和 Intel 两个产物。标签版本必须匹配 `Cargo.toml`。
 
-- PR 和手动触发：`.github/workflows/ci.yml` 运行 `swift test`。
-- 推送 `main`：`.github/workflows/release.yml` 测试、签名、打包并创建 `build-<run_number>` Release。
-- Release 更新说明自动汇总上一个 `build-*` 标签以来的提交。
-- Release 上传 ZIP 和 SHA-256。
+首个 Release 后更新 `Formula/kedu.rb` 的版本和两个 SHA-256，再发布到 `0x30/homebrew-tap`。
 
-签名 Secrets：`KEDU_CERT_P12`、`KEDU_CERT_PWD`。本地生成值位于被忽略的 `.github-secrets/`，不得提交。
+本机 Tap 维护仓库：
 
-## 约束
+```text
+/Users/titfer/Documents/other/homebrew-tap
+```
 
-- 保持菜单栏应用模式；不要移除 `LSUIElement`，除非明确决定恢复 Dock 图标。
-- 进程 CPU 口径必须继续匹配活动监视器，不能再除以核心数写回进程值。
-- 顶部整机 CPU 与进程 CPU 是不同口径，修改时同步更新文档和测试。
-- 采集数据默认不落盘。新增持久化必须先确认隐私、清理和升级策略。
-- 不要在每次采样读取完整启动参数或 cwd；这些信息按需读取，以控制开销。
-- 不要让 Tooltip 的鼠标像素移动触发整图重算。
-- 网络采集依赖系统 `nettop` 输出格式；修改解析器时保留样例测试和真实采集测试。
+Release 资产上传完成后，在 Tap 仓库执行：
+
+```bash
+ruby scripts/update-kedu-formula.rb 0.1.0
+brew style Formula/kedu.rb
+git diff --check
+```
+
+Tap 的 `Update Kedu Formula` 工作流也可以根据版本自动更新双架构 SHA-256 并创建 PR。项目内 `Formula/kedu.rb` 是发布模板，正式安装 Formula 以 Tap 仓库为准。
+
+## 关键约束
+
+- 进程 CPU 保持一个逻辑核心 `100%`。
+- 历史必须有界，不能随 daemon 运行时间无限增长。
+- 网络采集保持串行，不能同时启动多个 nettop。
+- Socket 权限必须保持 `0600`。
+- TUI 退出不能停止 daemon。
+- `kedu stop` 只能停止刻度服务，不能操作其他进程。
+- 默认不把监控历史写入磁盘。
+- 不提交 `.github-secrets/` 或任何签名材料。
