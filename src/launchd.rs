@@ -5,10 +5,14 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 
 pub const LABEL: &str = "io.github.0x30.kedu";
+const UNLOAD_TIMEOUT: Duration = Duration::from_secs(5);
+const UNLOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServiceStatus {
@@ -82,6 +86,7 @@ pub fn stop() -> Result<()> {
         if !output.status.success() {
             return Err(command_error("launchctl bootout", &output));
         }
+        wait_until_stopped(uid)?;
     }
 
     match fs::remove_file(&paths.plist) {
@@ -123,6 +128,19 @@ fn status_for_uid(uid: u32) -> Result<ServiceStatus> {
         Ok(ServiceStatus::Running { pid })
     } else {
         Ok(ServiceStatus::Loaded)
+    }
+}
+
+fn wait_until_stopped(uid: u32) -> Result<()> {
+    let deadline = Instant::now() + UNLOAD_TIMEOUT;
+    loop {
+        if status_for_uid(uid)? == ServiceStatus::Stopped {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for launchd service {LABEL} to stop");
+        }
+        thread::sleep(UNLOAD_POLL_INTERVAL);
     }
 }
 
