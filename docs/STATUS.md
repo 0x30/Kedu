@@ -14,7 +14,7 @@
 - macOS libproc CPU、physical footprint、磁盘累计计数采集。
 - nettop 单帧网络采集和应用/PID 速率聚合。
 - 最外层 `.app` 和父进程应用归属。
-- Ratatui 半格彩色堆叠图、鼠标悬浮、应用/PID 面板。
+- Ratatui 半格彩色堆叠图、历史位置游标、鼠标悬浮和随时间同步的应用面板。
 - ARM64/Intel Release 压缩包、SHA-256、GitHub Actions 和 Formula 模板。
 - main 推送后由 CI 自动创建版本标签和 Release，无需手工推送标签。
 - 本地 `homebrew-tap` 仓库已加入 Kedu Formula、校验值更新脚本和自动更新 PR 工作流。

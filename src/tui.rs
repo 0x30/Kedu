@@ -148,6 +148,7 @@ impl App {
             ServerMessage::State { history, latest } => {
                 self.snapshots = history;
                 self.latest = latest;
+                self.clamp_selection();
                 self.connected = true;
             }
             ServerMessage::Snapshot { snapshot } => {
@@ -168,7 +169,7 @@ impl App {
     fn trim_history(&mut self) {
         let maximum = self.config.sampling.maximum_samples.max(2);
         if self.snapshots.len() > maximum {
-            self.snapshots.drain(..self.snapshots.len() - maximum);
+            self.drain_oldest(self.snapshots.len() - maximum);
         }
         let Some(latest) = self.snapshots.last() else {
             return;
@@ -182,14 +183,66 @@ impl App {
             .position(|snapshot| snapshot.timestamp_unix_ms >= cutoff)
             .unwrap_or(self.snapshots.len());
         if keep_from > 0 {
-            self.snapshots.drain(..keep_from);
+            self.drain_oldest(keep_from);
         }
+    }
+
+    fn drain_oldest(&mut self, count: usize) {
+        self.snapshots.drain(..count);
+        if let Some(index) = self.hovered_index {
+            self.hovered_index = Some(index.saturating_sub(count));
+        }
+        self.clamp_selection();
+    }
+
+    fn selected_snapshot_index(&self) -> Option<usize> {
+        (!self.snapshots.is_empty()).then(|| {
+            self.hovered_index
+                .unwrap_or_else(|| self.snapshots.len().saturating_sub(1))
+                .min(self.snapshots.len().saturating_sub(1))
+        })
+    }
+
+    fn selected_snapshot(&self) -> Option<&ProcessSnapshot> {
+        let selected = self
+            .selected_snapshot_index()
+            .and_then(|index| self.snapshots.get(index));
+        match (selected, self.latest.as_ref()) {
+            (Some(snapshot), Some(latest))
+                if snapshot.timestamp_unix_ms == latest.timestamp_unix_ms =>
+            {
+                Some(latest)
+            }
+            (Some(snapshot), _) => Some(snapshot),
+            (None, latest) => latest,
+        }
+    }
+
+    fn selection_is_historical(&self) -> bool {
+        let Some(selected) = self.selected_snapshot() else {
+            return false;
+        };
+        self.latest
+            .as_ref()
+            .is_some_and(|latest| selected.timestamp_unix_ms != latest.timestamp_unix_ms)
+    }
+
+    fn select_snapshot(&mut self, index: usize) {
+        if self.snapshots.is_empty() {
+            return;
+        }
+        self.hovered_index = Some(index.min(self.snapshots.len().saturating_sub(1)));
+        self.clamp_selection();
+    }
+
+    fn clamp_selection(&mut self) {
+        let maximum = self.sorted_applications().len().saturating_sub(1);
+        self.selected_application = self.selected_application.min(maximum);
     }
 
     fn sorted_applications(&self) -> Vec<&ApplicationSample> {
         let mut applications: Vec<_> = self
-            .latest
-            .as_ref()
+            .selected_snapshot()
             .map_or_else(Vec::new, |snapshot| snapshot.applications.iter().collect());
         applications.sort_by(|left, right| {
             self.metric
@@ -293,9 +346,7 @@ fn handle_event(app: &mut App, terminal_event: Event) -> bool {
                     let relative = usize::from(mouse.column.saturating_sub(app.chart_area.x));
                     let count = app.snapshots.len();
                     if count > 0 {
-                        app.hovered_index = Some(
-                            (relative.saturating_mul(count) / width).min(count.saturating_sub(1)),
-                        );
+                        app.select_snapshot(relative.saturating_mul(count) / width);
                     }
                 } else if app
                     .applications_area
@@ -329,7 +380,7 @@ fn move_hover(app: &mut App, delta: isize) {
     let current = app
         .hovered_index
         .unwrap_or_else(|| app.snapshots.len().saturating_sub(1));
-    app.hovered_index = Some(
+    app.select_snapshot(
         current
             .saturating_add_signed(delta)
             .min(app.snapshots.len().saturating_sub(1)),
@@ -368,7 +419,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             metric: app.metric,
             direction: app.direction,
             top_count: app.config.display.top_applications,
-            hovered_index: app.hovered_index,
+            selected_index: app.selected_snapshot_index(),
             palette: palette(app.config.display.color),
         },
         columns[0],
@@ -460,12 +511,18 @@ fn render_application_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .collect::<Vec<_>>();
     frame.render_widget(
         Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title("应用"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(application_panel_title(app)),
+            )
             .wrap(Wrap { trim: false }),
         sections[0],
     );
 
-    let process_lines =
+    let process_lines = if app.selection_is_historical() {
+        Vec::new()
+    } else {
         applications
             .get(app.selected_application)
             .map_or_else(Vec::new, |application| {
@@ -483,12 +540,31 @@ fn render_application_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
                         ))
                     })
                     .collect()
-            });
+            })
+    };
+    let process_title = if app.selection_is_historical() {
+        "PID · 历史不保存"
+    } else {
+        "当前 PID"
+    };
     frame.render_widget(
         Paragraph::new(process_lines)
-            .block(Block::default().borders(Borders::ALL).title("当前 PID")),
+            .block(Block::default().borders(Borders::ALL).title(process_title)),
         sections[1],
     );
+}
+
+fn application_panel_title(app: &App) -> String {
+    let state = if app.selection_is_historical() {
+        "历史"
+    } else {
+        "当前"
+    };
+    let timestamp = app
+        .selected_snapshot()
+        .map(|snapshot| format_timestamp(snapshot.timestamp_unix_ms))
+        .unwrap_or_else(|| "--:--:--".to_owned());
+    format!("应用 · {state} {timestamp}")
 }
 
 fn footer_widget(app: &App) -> Paragraph<'static> {
@@ -499,18 +575,19 @@ fn footer_widget(app: &App) -> Paragraph<'static> {
     } else {
         "服务连接已断开".to_owned()
     };
-    let hover = app
-        .hovered_index
-        .and_then(|index| app.snapshots.get(index))
+    let selection = app
+        .selected_snapshot()
         .map_or_else(String::new, |snapshot| {
-            let timestamp = DateTime::from_timestamp_millis(snapshot.timestamp_unix_ms)
-                .map(|time| time.with_timezone(&Local).format("%H:%M:%S").to_string())
-                .unwrap_or_default();
-            format!("  历史 {timestamp}")
+            let state = if app.selection_is_historical() {
+                "历史"
+            } else {
+                "当前"
+            };
+            format!("  {state} {}", format_timestamp(snapshot.timestamp_unix_ms))
         });
     Paragraph::new(Line::from(vec![
         Span::styled(
-            format!(" {status}{hover}  "),
+            format!(" {status}{selection}  "),
             Style::default().fg(Color::DarkGray),
         ),
         Span::raw("Tab 指标  d 方向  ←→ 历史  ↑↓ 应用  q 退出"),
@@ -522,7 +599,7 @@ struct StackedAreaChart<'a> {
     metric: MetricCategory,
     direction: TransferDirection,
     top_count: usize,
-    hovered_index: Option<usize>,
+    selected_index: Option<usize>,
     palette: [Color; 8],
 }
 
@@ -590,17 +667,28 @@ impl Widget for StackedAreaChart<'_> {
             }
         }
 
-        if let Some(index) = self.hovered_index {
-            let x_offset = index.saturating_mul(usize::from(plot.width)) / self.snapshots.len();
+        if let Some(index) = self.selected_index {
+            let x_offset = selected_column(index, self.snapshots.len(), usize::from(plot.width));
             let x = plot
                 .x
                 .saturating_add(u16::try_from(x_offset).unwrap_or(u16::MAX))
                 .min(plot.right().saturating_sub(1));
             for y in plot.y..plot.bottom() {
-                buffer[(x, y)].set_style(Style::default().add_modifier(Modifier::BOLD));
+                buffer[(x, y)]
+                    .set_symbol("│")
+                    .set_style(Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED));
             }
+            buffer[(x, plot.y)].set_symbol("▼");
+            buffer[(x, plot.bottom().saturating_sub(1))].set_symbol("▲");
         }
     }
+}
+
+fn selected_column(index: usize, count: usize, width: usize) -> usize {
+    if count == 0 || width == 0 {
+        return 0;
+    }
+    index.min(count.saturating_sub(1)).saturating_mul(width) / count
 }
 
 struct Series {
@@ -688,6 +776,12 @@ fn format_rate(value: f64) -> String {
     }
 }
 
+fn format_timestamp(timestamp_unix_ms: i64) -> String {
+    DateTime::from_timestamp_millis(timestamp_unix_ms)
+        .map(|time| time.with_timezone(&Local).format("%H:%M:%S").to_string())
+        .unwrap_or_else(|| "--:--:--".to_owned())
+}
+
 fn truncate(value: &str, maximum: usize) -> String {
     let mut output = value.chars().take(maximum).collect::<String>();
     if value.chars().count() > maximum && maximum > 0 {
@@ -747,7 +841,7 @@ mod tests {
                         metric: MetricCategory::Cpu,
                         direction: TransferDirection::Incoming,
                         top_count: 7,
-                        hovered_index: Some(200),
+                        selected_index: Some(200),
                         palette: TRUECOLOR_PALETTE,
                     },
                     frame.area(),
@@ -768,6 +862,58 @@ mod tests {
     fn downsampling_keeps_requested_width() {
         let snapshots = (0..100).map(|index| sample(index, 1.0)).collect::<Vec<_>>();
         assert_eq!(downsample(&snapshots, 20).len(), 20);
+    }
+
+    #[test]
+    fn selected_history_drives_application_panel() {
+        let mut historical = sample(1_000, 42.0);
+        historical.applications[0].identity.name = "Historical".into();
+        let mut latest = sample(2_000, 99.0);
+        latest.applications[0].identity.name = "Latest".into();
+
+        let mut app = App::new(Config::default());
+        app.snapshots = vec![historical, latest.clone()];
+        app.latest = Some(latest);
+        app.select_snapshot(0);
+
+        assert_eq!(app.sorted_applications()[0].identity.name, "Historical");
+        assert!(app.selection_is_historical());
+        assert!(application_panel_title(&app).starts_with("应用 · 历史 "));
+    }
+
+    #[test]
+    fn selected_column_reaches_both_chart_edges() {
+        assert_eq!(selected_column(0, 100, 20), 0);
+        assert_eq!(selected_column(99, 100, 20), 19);
+    }
+
+    #[test]
+    fn selected_history_renders_a_visible_chart_cursor() {
+        let snapshots = (0..10).map(|index| sample(index, 1.0)).collect::<Vec<_>>();
+        let backend = TestBackend::new(20, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_widget(
+                    StackedAreaChart {
+                        snapshots: &snapshots,
+                        metric: MetricCategory::Cpu,
+                        direction: TransferDirection::Incoming,
+                        top_count: 7,
+                        selected_index: Some(5),
+                        palette: TRUECOLOR_PALETTE,
+                    },
+                    frame.area(),
+                );
+            })
+            .unwrap();
+
+        let plot_width = 18;
+        let cursor_x = 1 + selected_column(5, snapshots.len(), plot_width);
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(cursor_x as u16, 1)].symbol(), "▼");
+        assert_eq!(buffer[(cursor_x as u16, 2)].symbol(), "│");
+        assert_eq!(buffer[(cursor_x as u16, 6)].symbol(), "▲");
     }
 
     #[test]
