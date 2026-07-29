@@ -76,6 +76,7 @@ brew style Formula/kedu.rb
 - 只持久化应用级监控历史，不保存命令、cwd 或其他诊断信息。
 - 不放宽 Socket 文件权限。
 - launchd plist 必须使用明确的可执行文件路径，不依赖 shell 展开。
+- Release 由 main 推送自动创建版本标签；不要手工创建发布标签。
 
 ## 文档同步
 

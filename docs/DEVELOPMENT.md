@@ -90,7 +90,7 @@ dist/kedu-0.1.0-<target>.tar.gz
 dist/kedu-0.1.0-<target>.tar.gz.sha256
 ```
 
-推送 `v*` 标签触发 Release 工作流，构建 ARM64 和 Intel 两个产物。标签版本必须匹配 `Cargo.toml`。
+推送 `main` 且源码、Cargo 清单或打包脚本发生变化时触发 Release 工作流。CI 从 `Cargo.toml` 读取版本，确认该版本尚未发布，然后自动创建 `v<version>` 标签、构建 ARM64/Intel 产物并创建 Release。开发者不再手工创建或推送标签；已存在版本必须先提升 Cargo 版本。
 
 首个 Release 后更新 `Formula/kedu.rb` 的版本和两个 SHA-256，再发布到 `0x30/homebrew-tap`。
 
