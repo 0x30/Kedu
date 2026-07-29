@@ -22,7 +22,7 @@
 ## 验证基线
 
 - `cargo check --all-targets` 通过。
-- `cargo test --all-targets`：26 项通过。
+- `cargo test --all-targets`：29 项通过。
 - `cargo clippy --all-targets -- -D warnings` 通过。
 - 图表测试使用 Ratatui `TestBackend` 渲染 360 个采样点。
 - 采集测试包含真实 libproc 进程扫描。

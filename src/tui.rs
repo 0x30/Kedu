@@ -673,13 +673,21 @@ impl Widget for StackedAreaChart<'_> {
                 .x
                 .saturating_add(u16::try_from(x_offset).unwrap_or(u16::MAX))
                 .min(plot.right().saturating_sub(1));
+            let cursor_style = Style::default()
+                .fg(self.palette[4])
+                .add_modifier(Modifier::BOLD);
             for y in plot.y..plot.bottom() {
-                buffer[(x, y)]
-                    .set_symbol("│")
-                    .set_style(Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED));
+                let cell = &mut buffer[(x, y)];
+                if cell.symbol() == " " {
+                    cell.set_symbol("┊").set_style(cursor_style);
+                } else {
+                    cell.set_style(Style::default().add_modifier(Modifier::BOLD));
+                }
             }
-            buffer[(x, plot.y)].set_symbol("▼");
-            buffer[(x, plot.bottom().saturating_sub(1))].set_symbol("▲");
+            buffer[(x, area.y)].set_symbol("▼").set_style(cursor_style);
+            buffer[(x, area.bottom().saturating_sub(1))]
+                .set_symbol("▲")
+                .set_style(cursor_style);
         }
     }
 }
@@ -911,9 +919,12 @@ mod tests {
         let plot_width = 18;
         let cursor_x = 1 + selected_column(5, snapshots.len(), plot_width);
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(cursor_x as u16, 1)].symbol(), "▼");
-        assert_eq!(buffer[(cursor_x as u16, 2)].symbol(), "│");
-        assert_eq!(buffer[(cursor_x as u16, 6)].symbol(), "▲");
+        assert_eq!(buffer[(cursor_x as u16, 0)].symbol(), "▼");
+        assert!(matches!(
+            buffer[(cursor_x as u16, 2)].symbol(),
+            "█" | "▀" | "▄"
+        ));
+        assert_eq!(buffer[(cursor_x as u16, 7)].symbol(), "▲");
     }
 
     #[test]

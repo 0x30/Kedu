@@ -1,6 +1,6 @@
 [package]
 name = "kedu"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "A native macOS per-application resource monitor for the terminal"
 license = "MIT"
