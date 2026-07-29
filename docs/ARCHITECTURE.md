@@ -98,6 +98,8 @@ Socket 位于 `~/Library/Application Support/Kedu/kedu.sock`，权限为 `0600`�
 
 因此终端 20 行图表具有约 40 层纵向分辨率。鼠标坐标映射到采样索引，只有跨越采样点时才更新历史选择。
 
+颜色模式默认是 `auto`，会覆盖 shell 的 `NO_COLOR`，避免图形化监控退化为不可区分的单色堆叠。`truecolor` 使用 24 位 RGB，`ansi256` 使用索引色；需要单色时必须显式配置 `none`。
+
 ## 服务生命周期
 
 LaunchAgent label 为 `io.github.0x30.kedu`，启用 `RunAtLoad` 和 `KeepAlive`。日志写入 `~/Library/Logs/Kedu/`。停止服务后删除 plist，确保下次登录不会自动恢复；SQLite 历史不会因停止服务而删除。

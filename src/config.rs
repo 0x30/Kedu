@@ -56,13 +56,14 @@ pub struct DaemonConfig {
     pub log_level: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorMode {
     #[default]
     Auto,
     Truecolor,
     Ansi256,
+    None,
 }
 
 impl Default for Config {

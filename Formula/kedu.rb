@@ -1,7 +1,7 @@
 class Kedu < Formula
   desc "Application-level resource monitor for macOS terminals"
   homepage "https://github.com/0x30/Kedu"
-  version "0.1.0"
+  version "0.1.1"
   license "MIT"
   depends_on macos: :sonoma
 

@@ -21,7 +21,7 @@
 ## 验证基线
 
 - `cargo check --all-targets` 通过。
-- `cargo test --all-targets`：25 项通过。
+- `cargo test --all-targets`：26 项通过。
 - `cargo clippy --all-targets -- -D warnings` 通过。
 - 图表测试使用 Ratatui `TestBackend` 渲染 360 个采样点。
 - 采集测试包含真实 libproc 进程扫描。
@@ -34,6 +34,7 @@
 - 历史快照不保留 PID 列表，PID 面板只展示当前时刻。
 - 终端图表精度受字符单元尺寸限制。
 - 鼠标功能取决于终端是否支持 mouse reporting。
+- `display.color = auto` 会主动覆盖 `NO_COLOR`；可用 `none` 显式关闭颜色。
 - Homebrew Formula 的校验值需要在首个正式 Release 后更新。
 
 ## 后续方向

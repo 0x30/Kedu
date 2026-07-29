@@ -11,6 +11,7 @@ use crossterm::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEventKind,
     },
     execute,
+    style::force_color_output,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
@@ -25,12 +26,12 @@ use ratatui::{
 
 use crate::{
     collector::{ApplicationSample, ProcessSnapshot},
-    config::Config,
+    config::{ColorMode, Config},
     ipc::{self, ServerMessage},
     paths,
 };
 
-const PALETTE: [Color; 8] = [
+const TRUECOLOR_PALETTE: [Color; 8] = [
     Color::Rgb(34, 211, 238),
     Color::Rgb(251, 146, 60),
     Color::Rgb(74, 222, 128),
@@ -39,6 +40,17 @@ const PALETTE: [Color; 8] = [
     Color::Rgb(96, 165, 250),
     Color::Rgb(244, 114, 182),
     Color::Rgb(163, 163, 163),
+];
+
+const ANSI256_PALETTE: [Color; 8] = [
+    Color::Indexed(45),
+    Color::Indexed(208),
+    Color::Indexed(84),
+    Color::Indexed(203),
+    Color::Indexed(220),
+    Color::Indexed(75),
+    Color::Indexed(206),
+    Color::Indexed(244),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,6 +201,7 @@ impl App {
 }
 
 pub async fn run(config: Config) -> Result<()> {
+    force_color_output(config.display.color != ColorMode::None);
     let socket = paths::socket_path()?;
     let mut messages = ipc::subscribe(&socket).await?;
     let mut terminal = setup_terminal(config.display.mouse)?;
@@ -356,6 +369,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
             direction: app.direction,
             top_count: app.config.display.top_applications,
             hovered_index: app.hovered_index,
+            palette: palette(app.config.display.color),
         },
         columns[0],
     );
@@ -364,6 +378,7 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
 }
 
 fn summary_widget(app: &App) -> Paragraph<'static> {
+    let palette = palette(app.config.display.color);
     let (cpu, memory, disk, network) = app.latest.as_ref().map_or((0.0, 0, 0.0, 0.0), |snapshot| {
         let process_cpu: f64 = snapshot
             .applications
@@ -393,19 +408,20 @@ fn summary_widget(app: &App) -> Paragraph<'static> {
     });
 
     Paragraph::new(Line::from(vec![
-        Span::styled(" CPU ", Style::default().fg(PALETTE[0]).bold()),
+        Span::styled(" CPU ", Style::default().fg(palette[0]).bold()),
         Span::raw(format!("{cpu:5.1}%   ")),
-        Span::styled("内存 ", Style::default().fg(PALETTE[1]).bold()),
+        Span::styled("内存 ", Style::default().fg(palette[1]).bold()),
         Span::raw(format!("{:>8}   ", format_bytes(memory as f64))),
-        Span::styled("磁盘 ", Style::default().fg(PALETTE[2]).bold()),
+        Span::styled("磁盘 ", Style::default().fg(palette[2]).bold()),
         Span::raw(format!("{:>10}   ", format_rate(disk))),
-        Span::styled("网络 ", Style::default().fg(PALETTE[5]).bold()),
+        Span::styled("网络 ", Style::default().fg(palette[5]).bold()),
         Span::raw(format!("{:>10}", format_rate(network))),
     ]))
     .block(Block::default().borders(Borders::ALL).title("刻度"))
 }
 
 fn render_application_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let palette = palette(app.config.display.color);
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
@@ -427,7 +443,7 @@ fn render_application_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 " "
             };
             let style = if index == app.selected_application {
-                Style::default().fg(Color::Black).bg(PALETTE[0]).bold()
+                Style::default().fg(Color::Black).bg(palette[0]).bold()
             } else {
                 Style::default()
             };
@@ -507,6 +523,7 @@ struct StackedAreaChart<'a> {
     direction: TransferDirection,
     top_count: usize,
     hovered_index: Option<usize>,
+    palette: [Color; 8],
 }
 
 impl Widget for StackedAreaChart<'_> {
@@ -537,7 +554,7 @@ impl Widget for StackedAreaChart<'_> {
                 let start = ((lower / maximum) * sub_height as f64).floor() as usize;
                 let end = ((cumulative / maximum) * sub_height as f64).ceil() as usize;
                 for pixel in pixels.iter_mut().take(end.min(sub_height)).skip(start) {
-                    *pixel = Some(PALETTE[series_index.min(PALETTE.len() - 1)]);
+                    *pixel = Some(self.palette[series_index.min(self.palette.len() - 1)]);
                 }
             }
 
@@ -680,6 +697,14 @@ fn truncate(value: &str, maximum: usize) -> String {
     output
 }
 
+fn palette(mode: ColorMode) -> [Color; 8] {
+    match mode {
+        ColorMode::Ansi256 => ANSI256_PALETTE,
+        ColorMode::None => [Color::Reset; 8],
+        ColorMode::Auto | ColorMode::Truecolor => TRUECOLOR_PALETTE,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -723,6 +748,7 @@ mod tests {
                         direction: TransferDirection::Incoming,
                         top_count: 7,
                         hovered_index: Some(200),
+                        palette: TRUECOLOR_PALETTE,
                     },
                     frame.area(),
                 );
@@ -761,5 +787,14 @@ mod tests {
         );
 
         assert_eq!(app.hovered_index, Some(5));
+    }
+
+    #[test]
+    fn ansi256_mode_uses_indexed_colors() {
+        assert!(
+            palette(ColorMode::Ansi256)
+                .iter()
+                .all(|color| matches!(color, Color::Indexed(_)))
+        );
     }
 }

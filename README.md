@@ -97,6 +97,8 @@ log_level = "warn"
 
 数据库只保存应用级指标历史，不保存启动命令、工作目录等诊断信息。设置 `storage.enabled = false` 可恢复为纯内存模式。
 
+`display.color` 可设为 `auto`、`truecolor`、`ansi256` 或 `none`。刻度是图形化 TUI，因此前三种模式会主动启用颜色，即使 shell 设置了 `NO_COLOR`；只有 `none` 会明确关闭颜色。
+
 ## TUI 操作
 
 ```text
