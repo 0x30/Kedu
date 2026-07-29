@@ -20,6 +20,7 @@ use crate::{
     history::HistoryStore,
     ipc::{ClientRequest, ServerMessage, write_json_line},
     paths,
+    storage::HistoryDatabase,
 };
 
 pub async fn run(config: Config) -> Result<()> {
@@ -32,10 +33,20 @@ pub async fn run(config: Config) -> Result<()> {
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))
         .with_context(|| format!("无法设置 IPC Socket 权限 {}", socket_path.display()))?;
 
-    let history = Arc::new(RwLock::new(HistoryStore::new(
-        config.sampling.retention,
-        config.sampling.maximum_samples,
-    )));
+    let mut history_store =
+        HistoryStore::new(config.sampling.retention, config.sampling.maximum_samples);
+    let mut database = if config.storage.enabled {
+        let path = paths::history_database_path()?;
+        let database = HistoryDatabase::open(&path)?;
+        for snapshot in database.load(config.sampling.retention, config.sampling.maximum_samples)? {
+            history_store.append(snapshot);
+        }
+        info!(path = %path.display(), "restored persisted history");
+        Some(database)
+    } else {
+        None
+    };
+    let history = Arc::new(RwLock::new(history_store));
     let (updates, _) = broadcast::channel(32);
     let mut process_collector = ProcessCollector::new();
     let mut network_collector = NetworkCollector::new();
@@ -44,6 +55,7 @@ pub async fn run(config: Config) -> Result<()> {
         &config,
         &mut process_collector,
         &mut network_collector,
+        database.as_mut(),
         &history,
         &updates,
     )
@@ -53,6 +65,7 @@ pub async fn run(config: Config) -> Result<()> {
         &config,
         &mut process_collector,
         &mut network_collector,
+        database.as_mut(),
         &history,
         &updates,
     )
@@ -84,6 +97,7 @@ pub async fn run(config: Config) -> Result<()> {
                     &config,
                     &mut process_collector,
                     &mut network_collector,
+                    database.as_mut(),
                     &history,
                     &updates,
                 ).await;
@@ -101,6 +115,7 @@ async fn capture(
     config: &Config,
     process_collector: &mut ProcessCollector,
     network_collector: &mut NetworkCollector,
+    database: Option<&mut HistoryDatabase>,
     history: &Arc<RwLock<HistoryStore>>,
     updates: &broadcast::Sender<ProcessSnapshot>,
 ) {
@@ -121,6 +136,15 @@ async fn capture(
     }
     apply_metric_selection(&mut snapshot, config);
 
+    if let Some(database) = database
+        && let Err(error) = database.append(
+            &snapshot,
+            config.sampling.retention,
+            config.sampling.maximum_samples,
+        )
+    {
+        error!(%error, "history persistence failed");
+    }
     history.write().await.append(snapshot.clone());
     let _ = updates.send(snapshot);
 }

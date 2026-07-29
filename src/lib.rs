@@ -5,4 +5,5 @@ pub mod history;
 pub mod ipc;
 pub mod launchd;
 pub mod paths;
+pub mod storage;
 pub mod tui;

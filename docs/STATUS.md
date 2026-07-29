@@ -10,6 +10,7 @@
 - TOML 配置初始化、校验和路径查询。
 - Unix Socket IPC，权限限制为当前用户 `0600`。
 - daemon 内存环形历史，旧快照只保留应用汇总，最新快照保留 PID。
+- SQLite 应用级历史持久化，服务重启后恢复并自动裁剪。
 - macOS libproc CPU、physical footprint、磁盘累计计数采集。
 - nettop 单帧网络采集和应用/PID 速率聚合。
 - 最外层 `.app` 和父进程应用归属。
@@ -20,7 +21,7 @@
 ## 验证基线
 
 - `cargo check --all-targets` 通过。
-- `cargo test --all-targets`：22 项通过。
+- `cargo test --all-targets`：25 项通过。
 - `cargo clippy --all-targets -- -D warnings` 通过。
 - 图表测试使用 Ratatui `TestBackend` 渲染 360 个采样点。
 - 采集测试包含真实 libproc 进程扫描。
@@ -29,7 +30,7 @@
 
 - 仅支持 macOS 14+。
 - 网络依赖 `/usr/bin/nettop`，系统输出格式变化可能影响解析。
-- 历史只在 daemon 内存中；停止或重启服务后清空。
+- 默认只保留配置窗口内历史，不是无限期归档。
 - 历史快照不保留 PID 列表，PID 面板只展示当前时刻。
 - 终端图表精度受字符单元尺寸限制。
 - 鼠标功能取决于终端是否支持 mouse reporting。

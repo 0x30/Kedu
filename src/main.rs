@@ -2,7 +2,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use kedu::{config::Config, daemon, launchd, paths, tui};
+use kedu::{config::Config, daemon, launchd, paths, storage::HistoryDatabase, tui};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -27,6 +27,11 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// 查看或清理本地历史数据
+    Data {
+        #[command(subcommand)]
+        command: DataCommand,
+    },
     /// 在前台运行采集服务（由 launchd 使用）
     #[command(hide = true)]
     Daemon,
@@ -44,6 +49,14 @@ enum ConfigCommand {
     Check,
     /// 显示配置文件路径
     Path,
+}
+
+#[derive(Debug, Subcommand)]
+enum DataCommand {
+    /// 显示历史数据库路径
+    Path,
+    /// 清空历史数据库
+    Clear,
 }
 
 #[tokio::main]
@@ -96,12 +109,32 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Config { command }) => run_config_command(command),
+        Some(Command::Data { command }) => run_data_command(command),
         Some(Command::Daemon) => {
             let config = Config::load()?;
             init_logging(&config.daemon.log_level)?;
             daemon::run(config).await
         }
     }
+}
+
+fn run_data_command(command: DataCommand) -> Result<()> {
+    let path = paths::history_database_path()?;
+    match command {
+        DataCommand::Path => println!("{}", path.display()),
+        DataCommand::Clear => {
+            if launchd::status()?.is_loaded() {
+                anyhow::bail!("请先运行 kedu stop，再清空历史数据");
+            }
+            if !path.exists() {
+                println!("没有历史数据：{}", path.display());
+                return Ok(());
+            }
+            HistoryDatabase::open(&path)?.clear()?;
+            println!("已清空历史数据：{}", path.display());
+        }
+    }
+    Ok(())
 }
 
 fn run_config_command(command: ConfigCommand) -> Result<()> {

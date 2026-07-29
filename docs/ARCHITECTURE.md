@@ -10,6 +10,7 @@ launchd
        ├─ ProcessCollector ── libproc
        ├─ NetworkCollector ── /usr/bin/nettop
        ├─ HistoryStore ────── 有界内存历史
+       ├─ HistoryDatabase ─── SQLite 持久化
        └─ Unix Socket ─────── 0600
                     ↑
                 kedu TUI
@@ -22,6 +23,7 @@ launchd
 - `src/collector/`：macOS 进程和网络采集、应用归属、速率计算。
 - `src/config.rs`：TOML 配置、默认值和校验。
 - `src/history.rs`：按保留时长和最大采样数裁剪历史。
+- `src/storage.rs`：SQLite 历史恢复、写入和裁剪。
 - `src/ipc.rs`：JSON Lines IPC 协议和客户端订阅。
 - `src/daemon.rs`：采集循环、Socket 服务和广播。
 - `src/launchd.rs`：LaunchAgent 创建及 `launchctl` 管理。
@@ -75,6 +77,8 @@ daemon 保存两类状态：
 
 历史同时受 `retention` 和 `maximum_samples` 限制。TUI 再按图表宽度下采样，每列保留对应时间桶最后一个点。
 
+默认启用 SQLite 持久化，文件位于 `~/Library/Application Support/Kedu/history.sqlite3`。数据库使用 WAL 和 `synchronous=NORMAL`，每次采样写入应用级压缩快照，并按时间与样本数删除旧记录。daemon 启动时先恢复数据库历史，再继续采集。关闭持久化后仅使用内存历史。
+
 ## IPC
 
 Socket 位于 `~/Library/Application Support/Kedu/kedu.sock`，权限为 `0600`。协议为换行分隔 JSON：
@@ -96,4 +100,4 @@ Socket 位于 `~/Library/Application Support/Kedu/kedu.sock`，权限为 `0600`�
 
 ## 服务生命周期
 
-LaunchAgent label 为 `io.github.0x30.kedu`，启用 `RunAtLoad` 和 `KeepAlive`。日志写入 `~/Library/Logs/Kedu/`。停止服务后删除 plist，确保下次登录不会自动恢复。
+LaunchAgent label 为 `io.github.0x30.kedu`，启用 `RunAtLoad` 和 `KeepAlive`。日志写入 `~/Library/Logs/Kedu/`。停止服务后删除 plist，确保下次登录不会自动恢复；SQLite 历史不会因停止服务而删除。

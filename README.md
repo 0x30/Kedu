@@ -2,7 +2,7 @@
 
 刻度是面向 macOS 14+ 的应用级终端资源监控器。后台服务持续采集 CPU、内存、磁盘和网络数据，`kedu` 随时连接服务并用彩色堆叠图展示历史。
 
-数据默认只保存在后台服务内存中。退出 TUI 不会停止采集，执行 `kedu stop` 后历史清空。
+历史默认保存在当前用户的本地 SQLite 数据库中。退出 TUI 或重启服务不会丢失保留窗口内的数据，旧数据仍按配置自动裁剪。
 
 ## 功能
 
@@ -14,6 +14,7 @@
 - 支持键盘选择指标、历史时刻、应用和 PID。
 - 支持鼠标悬浮历史、点击应用和滚轮选择。
 - TOML 配置采样频率、保留时长、指标和显示参数。
+- SQLite 持久化有界历史，可通过配置关闭。
 - 无进程终止、命令读取或工作目录诊断功能，只做只读监控。
 
 ## 安装
@@ -38,7 +39,9 @@ kedu start          # 启动常驻监控服务
 kedu                # 打开 TUI
 kedu status         # 查看服务状态
 kedu restart        # 配置修改后重启
-kedu stop           # 停止服务并清除内存历史
+kedu stop           # 停止服务
+kedu data path      # 查看历史数据库位置
+kedu data clear     # 服务停止后清空历史
 ```
 
 首次 `kedu start` 会创建：
@@ -65,6 +68,9 @@ interval = "5s"
 retention = "30m"
 maximum_samples = 21600
 
+[storage]
+enabled = true
+
 [metrics]
 cpu = true
 memory = true
@@ -82,6 +88,14 @@ log_level = "warn"
 ```
 
 配置修改后运行 `kedu restart`。采样间隔不能小于 1 秒。
+
+历史数据库默认位于：
+
+```text
+~/Library/Application Support/Kedu/history.sqlite3
+```
+
+数据库只保存应用级指标历史，不保存启动命令、工作目录等诊断信息。设置 `storage.enabled = false` 可恢复为纯内存模式。
 
 ## TUI 操作
 

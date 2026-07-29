@@ -10,6 +10,7 @@ use crate::paths;
 pub struct Config {
     pub version: u32,
     pub sampling: SamplingConfig,
+    pub storage: StorageConfig,
     pub metrics: MetricsConfig,
     pub display: DisplayConfig,
     pub daemon: DaemonConfig,
@@ -23,6 +24,12 @@ pub struct SamplingConfig {
     #[serde(with = "humantime_serde")]
     pub retention: Duration,
     pub maximum_samples: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StorageConfig {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +70,7 @@ impl Default for Config {
         Self {
             version: 1,
             sampling: SamplingConfig::default(),
+            storage: StorageConfig::default(),
             metrics: MetricsConfig::default(),
             display: DisplayConfig::default(),
             daemon: DaemonConfig::default(),
@@ -77,6 +85,12 @@ impl Default for SamplingConfig {
             retention: Duration::from_secs(30 * 60),
             maximum_samples: 21_600,
         }
+    }
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 

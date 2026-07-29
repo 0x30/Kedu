@@ -44,6 +44,7 @@ cargo run -- stop
 src/collector/             macOS 采集
 src/config.rs              配置
 src/history.rs             内存历史
+src/storage.rs             SQLite 持久化
 src/ipc.rs                 Unix Socket 协议
 src/daemon.rs              常驻服务
 src/launchd.rs             launchctl 管理
@@ -68,6 +69,7 @@ scripts/package-release.sh Release 打包
 - 采集：累计计数、CPU 口径、`.app` 根路径、父进程归属、真实进程扫描。
 - 网络：nettop 行解析、累计速率和计数回退。
 - 历史：PID 压缩、按时间和数量裁剪。
+- 存储：跨重开恢复、SQLite 裁剪和清空。
 - 配置：默认值往返和非法采样间隔。
 - launchd：plist 内容、XML 转义和状态解析。
 - TUI：Ratatui `TestBackend` 密集堆叠图渲染和下采样。
@@ -116,5 +118,6 @@ Tap 的 `Update Kedu Formula` 工作流也可以根据版本自动更新双架�
 - Socket 权限必须保持 `0600`。
 - TUI 退出不能停止 daemon。
 - `kedu stop` 只能停止刻度服务，不能操作其他进程。
-- 默认不把监控历史写入磁盘。
+- 默认只在当前用户目录持久化应用级历史，不保存诊断信息。
+- 持久化关闭时必须继续支持纯内存模式。
 - 不提交 `.github-secrets/` 或任何签名材料。

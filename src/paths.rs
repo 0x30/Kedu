@@ -24,6 +24,13 @@ pub fn socket_path() -> Result<PathBuf> {
     Ok(state_dir()?.join("kedu.sock"))
 }
 
+pub fn history_database_path() -> Result<PathBuf> {
+    if let Some(path) = env::var_os("KEDU_HISTORY_PATH").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    Ok(state_dir()?.join("history.sqlite3"))
+}
+
 pub fn log_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("无法确定用户主目录")?;
     Ok(home.join("Library/Logs/Kedu"))

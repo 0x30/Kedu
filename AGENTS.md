@@ -24,6 +24,7 @@
 - `src/collector/`：libproc、nettop、应用归属和指标模型。
 - `src/config.rs`：TOML 配置。
 - `src/history.rs`：有界内存历史。
+- `src/storage.rs`：SQLite 持久化历史。
 - `src/ipc.rs`：JSON Lines Unix Socket 协议。
 - `src/daemon.rs`：采集循环和客户端广播。
 - `src/launchd.rs`：LaunchAgent 生命周期。
@@ -35,12 +36,13 @@
 - `kedu start` 后终端关闭仍继续采集。
 - `kedu` 退出不能停止 daemon。
 - `kedu stop` 只停止刻度自身并移除 LaunchAgent。
-- 默认每 5 秒采样、保留 30 分钟、数据只在内存中。
+- 默认每 5 秒采样、保留 30 分钟，应用级历史写入当前用户 SQLite。
 - 进程 CPU 一个逻辑核心为 `100%`。
 - 顶部 CPU 按逻辑核心数归一化到 `0...100%`。
 - Chrome/Electron Helper 归属最外层 `.app`。
 - 网络采集串行运行。
 - 历史同时受保留时间和最大样本数限制。
+- daemon 重启后恢复 SQLite 历史；关闭存储时保持纯内存模式。
 - 图表保持前 N 个应用 + “其他”。
 - Socket 权限为 `0600`。
 - 工具不读取启动命令/cwd，不终止其他进程。
@@ -70,7 +72,7 @@ brew style Formula/kedu.rb
 
 - 不提交 `.github-secrets/`、证书、密码或私钥。
 - 不增加终止其他进程的能力。
-- 不默认持久化监控历史。
+- 只持久化应用级监控历史，不保存命令、cwd 或其他诊断信息。
 - 不放宽 Socket 文件权限。
 - launchd plist 必须使用明确的可执行文件路径，不依赖 shell 展开。
 
