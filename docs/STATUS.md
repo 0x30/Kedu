@@ -14,7 +14,7 @@
 - macOS libproc CPU、physical footprint、磁盘累计计数采集。
 - nettop 单帧网络采集和应用/PID 速率聚合。
 - 最外层 `.app` 和父进程应用归属。
-- Ratatui 半格彩色堆叠图、历史位置游标、鼠标悬浮和随时间同步的应用面板。
+- Ratatui 半格彩色堆叠图、固定时间桶、稳定应用颜色、历史位置游标和随时间同步的应用面板。
 - ARM64/Intel Release 压缩包、SHA-256、GitHub Actions 和 Formula 模板。
 - main 推送后由 CI 自动创建版本标签和 Release，无需手工推送标签。
 - 本地 `homebrew-tap` 仓库已加入 Kedu Formula、校验值更新脚本和自动更新 PR 工作流。
@@ -22,7 +22,7 @@
 ## 验证基线
 
 - `cargo check --all-targets` 通过。
-- `cargo test --all-targets`：29 项通过。
+- `cargo test --all-targets`：39 项通过。
 - `cargo clippy --all-targets -- -D warnings` 通过。
 - 图表测试使用 Ratatui `TestBackend` 渲染 360 个采样点。
 - 采集测试包含真实 libproc 进程扫描。

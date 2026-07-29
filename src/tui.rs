@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{self, Stdout},
     time::Duration,
 };
@@ -52,6 +52,10 @@ const ANSI256_PALETTE: [Color; 8] = [
     Color::Indexed(206),
     Color::Indexed(244),
 ];
+
+const AXIS_SHRINK_RATIO: f64 = 0.65;
+const AXIS_SHRINK_SAMPLES: u8 = 6;
+const NICE_AXIS_STEPS: [f64; 10] = [1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MetricCategory {
@@ -121,6 +125,12 @@ struct App {
     hovered_index: Option<usize>,
     selected_application: usize,
     chart_area: Rect,
+    chart_source_indices: Vec<Option<usize>>,
+    chart_series_slots: Vec<Option<String>>,
+    chart_axis_maximum: Option<f64>,
+    chart_axis_shrink_samples: u8,
+    chart_axis_last_timestamp: Option<i64>,
+    chart_analysis_dirty: bool,
     applications_area: Rect,
     connected: bool,
     error: Option<String>,
@@ -137,6 +147,12 @@ impl App {
             hovered_index: None,
             selected_application: 0,
             chart_area: Rect::default(),
+            chart_source_indices: Vec::new(),
+            chart_series_slots: Vec::new(),
+            chart_axis_maximum: None,
+            chart_axis_shrink_samples: 0,
+            chart_axis_last_timestamp: None,
+            chart_analysis_dirty: true,
             applications_area: Rect::default(),
             connected: true,
             error: None,
@@ -149,6 +165,7 @@ impl App {
                 self.snapshots = history;
                 self.latest = latest;
                 self.clamp_selection();
+                self.chart_analysis_dirty = true;
                 self.connected = true;
             }
             ServerMessage::Snapshot { snapshot } => {
@@ -159,6 +176,7 @@ impl App {
                 self.snapshots.push(compact);
                 self.latest = Some(snapshot);
                 self.trim_history();
+                self.chart_analysis_dirty = true;
                 self.connected = true;
             }
             ServerMessage::Pong => self.connected = true,
@@ -233,6 +251,82 @@ impl App {
         }
         self.hovered_index = Some(index.min(self.snapshots.len().saturating_sub(1)));
         self.clamp_selection();
+    }
+
+    fn select_chart_column(&mut self, column: usize) {
+        if let Some(index) = nearest_source_index(&self.chart_source_indices, column) {
+            self.select_snapshot(index);
+        }
+    }
+
+    fn reset_chart_state(&mut self) {
+        self.chart_series_slots.clear();
+        self.chart_axis_maximum = None;
+        self.chart_axis_shrink_samples = 0;
+        self.chart_axis_last_timestamp = None;
+        self.chart_analysis_dirty = true;
+    }
+
+    fn update_series_slots(&mut self, top_ids: &[String]) {
+        let slot_count = self.config.display.top_applications;
+        self.chart_series_slots.resize(slot_count, None);
+        self.chart_series_slots.truncate(slot_count);
+
+        let desired = top_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+        for slot in &mut self.chart_series_slots {
+            if slot.as_deref().is_some_and(|id| !desired.contains(id)) {
+                *slot = None;
+            }
+        }
+
+        for id in top_ids {
+            if self
+                .chart_series_slots
+                .iter()
+                .any(|slot| slot.as_deref() == Some(id.as_str()))
+            {
+                continue;
+            }
+            if let Some(slot) = self
+                .chart_series_slots
+                .iter_mut()
+                .find(|slot| slot.is_none())
+            {
+                *slot = Some(id.clone());
+            }
+        }
+    }
+
+    fn update_axis_maximum(&mut self, peak: f64) -> f64 {
+        let candidate = nice_upper_bound((peak * 1.05).max(1.0));
+        let latest_timestamp = self
+            .snapshots
+            .last()
+            .map(|snapshot| snapshot.timestamp_unix_ms);
+        let is_new_sample = latest_timestamp != self.chart_axis_last_timestamp;
+        self.chart_axis_last_timestamp = latest_timestamp;
+
+        let Some(current) = self.chart_axis_maximum else {
+            self.chart_axis_maximum = Some(candidate);
+            return candidate;
+        };
+
+        if candidate > current {
+            self.chart_axis_maximum = Some(candidate);
+            self.chart_axis_shrink_samples = 0;
+        } else if candidate < current && peak <= current * AXIS_SHRINK_RATIO {
+            if is_new_sample {
+                self.chart_axis_shrink_samples = self.chart_axis_shrink_samples.saturating_add(1);
+            }
+            if self.chart_axis_shrink_samples >= AXIS_SHRINK_SAMPLES {
+                self.chart_axis_maximum = Some(previous_nice_step(current).max(candidate));
+                self.chart_axis_shrink_samples = 0;
+            }
+        } else {
+            self.chart_axis_shrink_samples = 0;
+        }
+
+        self.chart_axis_maximum.unwrap_or(candidate)
     }
 
     fn clamp_selection(&mut self) {
@@ -319,6 +413,7 @@ fn handle_event(app: &mut App, terminal_event: Event) -> bool {
             KeyCode::Tab => {
                 app.metric = app.metric.next();
                 app.selected_application = 0;
+                app.reset_chart_state();
             }
             KeyCode::Char('d') => {
                 if matches!(app.metric, MetricCategory::Disk | MetricCategory::Network) {
@@ -326,6 +421,7 @@ fn handle_event(app: &mut App, terminal_event: Event) -> bool {
                         TransferDirection::Incoming => TransferDirection::Outgoing,
                         TransferDirection::Outgoing => TransferDirection::Incoming,
                     };
+                    app.reset_chart_state();
                 }
             }
             KeyCode::Left => move_hover(app, -1),
@@ -342,12 +438,8 @@ fn handle_event(app: &mut App, terminal_event: Event) -> bool {
         Event::Mouse(mouse) => match mouse.kind {
             MouseEventKind::Moved | MouseEventKind::Down(_) | MouseEventKind::Drag(_) => {
                 if app.chart_area.contains((mouse.column, mouse.row).into()) {
-                    let width = usize::from(app.chart_area.width.max(1));
                     let relative = usize::from(mouse.column.saturating_sub(app.chart_area.x));
-                    let count = app.snapshots.len();
-                    if count > 0 {
-                        app.select_snapshot(relative.saturating_mul(count) / width);
-                    }
+                    app.select_chart_column(relative);
                 } else if app
                     .applications_area
                     .contains((mouse.column, mouse.row).into())
@@ -380,11 +472,29 @@ fn move_hover(app: &mut App, delta: isize) {
     let current = app
         .hovered_index
         .unwrap_or_else(|| app.snapshots.len().saturating_sub(1));
-    app.select_snapshot(
-        current
-            .saturating_add_signed(delta)
-            .min(app.snapshots.len().saturating_sub(1)),
-    );
+    let next = if delta.is_negative() {
+        app.chart_source_indices
+            .iter()
+            .rev()
+            .flatten()
+            .copied()
+            .find(|index| *index < current)
+    } else {
+        app.chart_source_indices
+            .iter()
+            .flatten()
+            .copied()
+            .find(|index| *index > current)
+    };
+    if let Some(index) = next {
+        app.select_snapshot(index);
+    } else if app.chart_source_indices.is_empty() {
+        app.select_snapshot(
+            current
+                .saturating_add_signed(delta)
+                .min(app.snapshots.len().saturating_sub(1)),
+        );
+    }
 }
 
 fn render(frame: &mut Frame<'_>, app: &mut App) {
@@ -413,13 +523,41 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
     };
     app.applications_area = columns[1];
 
+    if app.chart_analysis_dirty {
+        let top_ids = top_application_ids(
+            &app.snapshots,
+            app.metric,
+            app.direction,
+            app.config.display.top_applications,
+        );
+        app.update_series_slots(&top_ids);
+        let peak = history_peak(&app.snapshots, app.metric, app.direction);
+        app.update_axis_maximum(peak);
+        app.chart_analysis_dirty = false;
+    }
+    let maximum = app.chart_axis_maximum.unwrap_or(1.0);
+    let selected_timestamp = app
+        .selected_snapshot()
+        .map(|snapshot| snapshot.timestamp_unix_ms);
+    let buckets = ChartBuckets::new(
+        &app.snapshots,
+        usize::from(app.chart_area.width),
+        app.config.sampling.retention,
+    );
+    app.chart_source_indices = buckets
+        .columns
+        .iter()
+        .map(|column| column.source_index)
+        .collect();
+
     frame.render_widget(
         StackedAreaChart {
-            snapshots: &app.snapshots,
+            buckets,
             metric: app.metric,
             direction: app.direction,
-            top_count: app.config.display.top_applications,
-            selected_index: app.selected_snapshot_index(),
+            series_slots: app.chart_series_slots.clone(),
+            selected_timestamp,
+            maximum,
             palette: palette(app.config.display.color),
         },
         columns[0],
@@ -595,11 +733,12 @@ fn footer_widget(app: &App) -> Paragraph<'static> {
 }
 
 struct StackedAreaChart<'a> {
-    snapshots: &'a [ProcessSnapshot],
+    buckets: ChartBuckets<'a>,
     metric: MetricCategory,
     direction: TransferDirection,
-    top_count: usize,
-    selected_index: Option<usize>,
+    series_slots: Vec<Option<String>>,
+    selected_timestamp: Option<i64>,
+    maximum: f64,
     palette: [Color; 8],
 }
 
@@ -609,29 +748,29 @@ impl Widget for StackedAreaChart<'_> {
         let block = Block::default().borders(Borders::ALL).title(title);
         let plot = block.inner(area);
         block.render(area, buffer);
-        if plot.width == 0 || plot.height == 0 || self.snapshots.is_empty() {
+        if plot.width == 0 || plot.height == 0 || self.buckets.columns.is_empty() {
             return;
         }
 
-        let sampled = downsample(self.snapshots, usize::from(plot.width));
-        let series = build_series(&sampled, self.metric, self.direction, self.top_count);
-        let maximum = (0..sampled.len())
-            .map(|index| series.iter().map(|item| item.values[index]).sum::<f64>())
-            .fold(0.0, f64::max)
-            .max(1.0)
-            * 1.06;
+        let series = build_series(
+            &self.buckets.columns,
+            self.metric,
+            self.direction,
+            &self.series_slots,
+            self.palette.len(),
+        );
         let sub_height = usize::from(plot.height) * 2;
 
-        for (column, _) in sampled.iter().enumerate() {
+        for column in 0..self.buckets.columns.len() {
             let mut pixels = vec![None; sub_height];
             let mut cumulative = 0.0;
-            for (series_index, item) in series.iter().enumerate() {
+            for item in &series {
                 let lower = cumulative;
                 cumulative += item.values[column];
-                let start = ((lower / maximum) * sub_height as f64).floor() as usize;
-                let end = ((cumulative / maximum) * sub_height as f64).ceil() as usize;
+                let start = ((lower / self.maximum) * sub_height as f64).floor() as usize;
+                let end = ((cumulative / self.maximum) * sub_height as f64).ceil() as usize;
                 for pixel in pixels.iter_mut().take(end.min(sub_height)).skip(start) {
-                    *pixel = Some(self.palette[series_index.min(self.palette.len() - 1)]);
+                    *pixel = Some(self.palette[item.palette_index]);
                 }
             }
 
@@ -667,8 +806,10 @@ impl Widget for StackedAreaChart<'_> {
             }
         }
 
-        if let Some(index) = self.selected_index {
-            let x_offset = selected_column(index, self.snapshots.len(), usize::from(plot.width));
+        if let Some(x_offset) = self
+            .selected_timestamp
+            .and_then(|timestamp| self.buckets.column_for_timestamp(timestamp))
+        {
             let x = plot
                 .x
                 .saturating_add(u16::try_from(x_offset).unwrap_or(u16::MAX))
@@ -692,76 +833,224 @@ impl Widget for StackedAreaChart<'_> {
     }
 }
 
-fn selected_column(index: usize, count: usize, width: usize) -> usize {
-    if count == 0 || width == 0 {
-        return 0;
+#[derive(Clone, Copy, Default)]
+struct ChartColumn<'a> {
+    snapshot: Option<&'a ProcessSnapshot>,
+    source_index: Option<usize>,
+}
+
+struct ChartBuckets<'a> {
+    columns: Vec<ChartColumn<'a>>,
+    first_bucket: i64,
+    bucket_width_ms: i64,
+}
+
+impl<'a> ChartBuckets<'a> {
+    fn new(snapshots: &'a [ProcessSnapshot], width: usize, retention: Duration) -> Self {
+        if width == 0 || snapshots.is_empty() {
+            return Self {
+                columns: Vec::new(),
+                first_bucket: 0,
+                bucket_width_ms: 1,
+            };
+        }
+
+        let bucket_width_ms = chart_bucket_width_ms(retention, width);
+        let latest_bucket = snapshots
+            .last()
+            .map(|snapshot| snapshot.timestamp_unix_ms.div_euclid(bucket_width_ms))
+            .unwrap_or(0);
+        let first_bucket = latest_bucket
+            .saturating_sub(i64::try_from(width.saturating_sub(1)).unwrap_or(i64::MAX));
+        let mut columns = vec![ChartColumn::default(); width];
+        for (source_index, snapshot) in snapshots.iter().enumerate() {
+            let bucket = snapshot.timestamp_unix_ms.div_euclid(bucket_width_ms);
+            if bucket < first_bucket || bucket > latest_bucket {
+                continue;
+            }
+            let column = usize::try_from(bucket.saturating_sub(first_bucket)).unwrap_or(usize::MAX);
+            if let Some(target) = columns.get_mut(column) {
+                *target = ChartColumn {
+                    snapshot: Some(snapshot),
+                    source_index: Some(source_index),
+                };
+            }
+        }
+
+        Self {
+            columns,
+            first_bucket,
+            bucket_width_ms,
+        }
     }
-    index.min(count.saturating_sub(1)).saturating_mul(width) / count
+
+    fn column_for_timestamp(&self, timestamp_unix_ms: i64) -> Option<usize> {
+        let bucket = timestamp_unix_ms.div_euclid(self.bucket_width_ms);
+        let column = usize::try_from(bucket.checked_sub(self.first_bucket)?).ok()?;
+        (column < self.columns.len()).then_some(column)
+    }
 }
 
 struct Series {
     values: Vec<f64>,
+    palette_index: usize,
 }
 
 fn build_series(
-    snapshots: &[&ProcessSnapshot],
+    columns: &[ChartColumn<'_>],
     metric: MetricCategory,
     direction: TransferDirection,
-    top_count: usize,
+    slots: &[Option<String>],
+    palette_len: usize,
 ) -> Vec<Series> {
-    let mut totals = HashMap::<String, (String, f64)>::new();
-    for snapshot in snapshots {
-        for application in &snapshot.applications {
-            let entry = totals
-                .entry(application.identity.id.clone())
-                .or_insert_with(|| (application.identity.name.clone(), 0.0));
-            entry.1 += metric.value(application, direction);
-        }
-    }
-    let mut identities = totals.into_iter().collect::<Vec<_>>();
-    identities.sort_by(|left, right| right.1.1.total_cmp(&left.1.1));
-    let top_ids = identities
-        .into_iter()
-        .take(top_count)
-        .map(|(id, _)| id)
-        .collect::<Vec<_>>();
-    let index_by_id = top_ids
+    let index_by_id = slots
         .iter()
         .enumerate()
-        .map(|(index, id)| (id.as_str(), index))
+        .filter_map(|(index, id)| id.as_deref().map(|id| (id, index)))
         .collect::<HashMap<_, _>>();
-    let mut values = vec![vec![0.0; snapshots.len()]; top_ids.len()];
-    let mut other = vec![0.0; snapshots.len()];
-    for (sample_index, snapshot) in snapshots.iter().enumerate() {
+    let mut values = vec![vec![0.0; columns.len()]; slots.len()];
+    let mut other = vec![0.0; columns.len()];
+    for (column_index, column) in columns.iter().enumerate() {
+        let Some(snapshot) = column.snapshot else {
+            continue;
+        };
         for application in &snapshot.applications {
             let value = metric.value(application, direction);
             if let Some(series_index) = index_by_id.get(application.identity.id.as_str()) {
-                values[*series_index][sample_index] += value;
+                values[*series_index][column_index] += value;
             } else {
-                other[sample_index] += value;
+                other[column_index] += value;
             }
         }
     }
     let mut output = values
         .into_iter()
-        .map(|values| Series { values })
+        .enumerate()
+        .map(|(palette_index, values)| Series {
+            values,
+            palette_index: palette_index.min(palette_len.saturating_sub(1)),
+        })
         .collect::<Vec<_>>();
     if other.iter().any(|value| *value > 0.0) {
-        output.push(Series { values: other });
+        output.push(Series {
+            values: other,
+            palette_index: palette_len.saturating_sub(1),
+        });
     }
     output
 }
 
-fn downsample(snapshots: &[ProcessSnapshot], maximum: usize) -> Vec<&ProcessSnapshot> {
-    if snapshots.len() <= maximum || maximum < 2 {
-        return snapshots.iter().collect();
+fn chart_bucket_width_ms(retention: Duration, width: usize) -> i64 {
+    let retention_ms = i64::try_from(retention.as_millis())
+        .unwrap_or(i64::MAX)
+        .max(1);
+    let width = i64::try_from(width).unwrap_or(i64::MAX).max(1);
+    retention_ms / width + i64::from(retention_ms % width != 0)
+}
+
+fn nearest_source_index(columns: &[Option<usize>], selected: usize) -> Option<usize> {
+    if columns.is_empty() {
+        return None;
     }
-    (0..maximum)
-        .map(|index| {
-            let source = ((index + 1) * snapshots.len() / maximum).saturating_sub(1);
-            &snapshots[source]
-        })
+    let selected = selected.min(columns.len().saturating_sub(1));
+    if let Some(index) = columns[selected] {
+        return Some(index);
+    }
+    for distance in 1..columns.len() {
+        if let Some(index) = selected
+            .checked_sub(distance)
+            .and_then(|column| columns[column])
+        {
+            return Some(index);
+        }
+        if let Some(index) = columns
+            .get(selected.saturating_add(distance))
+            .copied()
+            .flatten()
+        {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn top_application_ids(
+    snapshots: &[ProcessSnapshot],
+    metric: MetricCategory,
+    direction: TransferDirection,
+    top_count: usize,
+) -> Vec<String> {
+    let mut totals = HashMap::<String, f64>::new();
+    for snapshot in snapshots {
+        for application in &snapshot.applications {
+            *totals.entry(application.identity.id.clone()).or_default() +=
+                metric.value(application, direction);
+        }
+    }
+    let mut identities = totals.into_iter().collect::<Vec<_>>();
+    identities.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    identities
+        .into_iter()
+        .take(top_count)
+        .map(|(id, _)| id)
         .collect()
+}
+
+fn history_peak(
+    snapshots: &[ProcessSnapshot],
+    metric: MetricCategory,
+    direction: TransferDirection,
+) -> f64 {
+    snapshots
+        .iter()
+        .map(|snapshot| {
+            snapshot
+                .applications
+                .iter()
+                .map(|application| metric.value(application, direction))
+                .sum::<f64>()
+        })
+        .fold(0.0, f64::max)
+}
+
+fn nice_upper_bound(value: f64) -> f64 {
+    if !value.is_finite() || value <= 1.0 {
+        return 1.0;
+    }
+    let magnitude = 10_f64.powf(value.log10().floor());
+    let normalized = value / magnitude;
+    let step = NICE_AXIS_STEPS
+        .iter()
+        .copied()
+        .find(|step| normalized <= *step)
+        .unwrap_or(10.0);
+    step * magnitude
+}
+
+fn previous_nice_step(value: f64) -> f64 {
+    if !value.is_finite() || value <= 1.0 {
+        return 1.0;
+    }
+    let magnitude = 10_f64.powf(value.log10().floor());
+    let normalized = value / magnitude;
+    let last_step = NICE_AXIS_STEPS[NICE_AXIS_STEPS.len() - 1];
+    if normalized > last_step + f64::EPSILON {
+        return last_step * magnitude;
+    }
+    let current_index = NICE_AXIS_STEPS
+        .iter()
+        .position(|step| normalized <= *step + f64::EPSILON)
+        .unwrap_or(0);
+    if current_index == 0 {
+        last_step * magnitude / 10.0
+    } else {
+        NICE_AXIS_STEPS[current_index - 1] * magnitude
+    }
 }
 
 fn format_bytes(value: f64) -> String {
@@ -815,22 +1104,32 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     fn sample(timestamp: i64, cpu: f64) -> ProcessSnapshot {
+        sample_with_applications(timestamp, &[("app:test", "Test", cpu)])
+    }
+
+    fn sample_with_applications(
+        timestamp: i64,
+        applications: &[(&str, &str, f64)],
+    ) -> ProcessSnapshot {
         ProcessSnapshot {
             timestamp_unix_ms: timestamp,
-            applications: vec![ApplicationSample {
-                identity: ApplicationIdentity {
-                    id: "app:test".into(),
-                    name: "Test".into(),
-                    bundle_path: None,
-                },
-                processes: vec![],
-                cpu_percent: cpu,
-                memory_bytes: 0,
-                disk_read_bytes_per_second: 0.0,
-                disk_write_bytes_per_second: 0.0,
-                network_download_bytes_per_second: 0.0,
-                network_upload_bytes_per_second: 0.0,
-            }],
+            applications: applications
+                .iter()
+                .map(|(id, name, cpu)| ApplicationSample {
+                    identity: ApplicationIdentity {
+                        id: (*id).into(),
+                        name: (*name).into(),
+                        bundle_path: None,
+                    },
+                    processes: vec![],
+                    cpu_percent: *cpu,
+                    memory_bytes: 0,
+                    disk_read_bytes_per_second: 0.0,
+                    disk_write_bytes_per_second: 0.0,
+                    network_download_bytes_per_second: 0.0,
+                    network_upload_bytes_per_second: 0.0,
+                })
+                .collect(),
         }
     }
 
@@ -843,13 +1142,15 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
+                let buckets = ChartBuckets::new(&snapshots, 78, Duration::from_secs(30 * 60));
                 frame.render_widget(
                     StackedAreaChart {
-                        snapshots: &snapshots,
+                        buckets,
                         metric: MetricCategory::Cpu,
                         direction: TransferDirection::Incoming,
-                        top_count: 7,
-                        selected_index: Some(200),
+                        series_slots: vec![Some("app:test".into())],
+                        selected_timestamp: Some(snapshots[200].timestamp_unix_ms),
+                        maximum: 100.0,
                         palette: TRUECOLOR_PALETTE,
                     },
                     frame.area(),
@@ -867,9 +1168,105 @@ mod tests {
     }
 
     #[test]
-    fn downsampling_keeps_requested_width() {
-        let snapshots = (0..100).map(|index| sample(index, 1.0)).collect::<Vec<_>>();
-        assert_eq!(downsample(&snapshots, 20).len(), 20);
+    fn time_buckets_keep_requested_width() {
+        let snapshots = (0..360)
+            .map(|index| sample(index * 5_000, 1.0))
+            .collect::<Vec<_>>();
+        let buckets = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+
+        assert_eq!(buckets.columns.len(), 20);
+        assert_eq!(buckets.bucket_width_ms, 90_000);
+    }
+
+    #[test]
+    fn appending_inside_a_time_bucket_only_updates_that_column() {
+        let mut snapshots = (0..350)
+            .map(|index| sample(index * 5_000, index as f64))
+            .collect::<Vec<_>>();
+        let before = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+        let before_timestamps = before
+            .columns
+            .iter()
+            .map(|column| column.snapshot.map(|snapshot| snapshot.timestamp_unix_ms))
+            .collect::<Vec<_>>();
+
+        snapshots.push(sample(1_750_000, 999.0));
+        let after = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+        let after_timestamps = after
+            .columns
+            .iter()
+            .map(|column| column.snapshot.map(|snapshot| snapshot.timestamp_unix_ms))
+            .collect::<Vec<_>>();
+
+        assert_eq!(&before_timestamps[..19], &after_timestamps[..19]);
+        assert_ne!(before_timestamps[19], after_timestamps[19]);
+    }
+
+    #[test]
+    fn crossing_a_time_bucket_only_shifts_history_one_column() {
+        let mut snapshots = (0..360)
+            .map(|index| sample(index * 5_000, index as f64))
+            .collect::<Vec<_>>();
+        let before = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+        let before_timestamps = before
+            .columns
+            .iter()
+            .map(|column| column.snapshot.map(|snapshot| snapshot.timestamp_unix_ms))
+            .collect::<Vec<_>>();
+
+        snapshots.push(sample(1_800_000, 999.0));
+        let after = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+        let after_timestamps = after
+            .columns
+            .iter()
+            .map(|column| column.snapshot.map(|snapshot| snapshot.timestamp_unix_ms))
+            .collect::<Vec<_>>();
+
+        assert_eq!(&before_timestamps[1..], &after_timestamps[..19]);
+        assert_eq!(after_timestamps[19], Some(1_800_000));
+    }
+
+    #[test]
+    fn refresh_inside_a_bucket_changes_only_the_current_rendered_column() {
+        let mut snapshots = (0..350)
+            .map(|index| sample(index * 5_000, (index % 100) as f64))
+            .collect::<Vec<_>>();
+        let render = |snapshots: &[ProcessSnapshot]| {
+            let backend = TestBackend::new(22, 10);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|frame| {
+                    frame.render_widget(
+                        StackedAreaChart {
+                            buckets: ChartBuckets::new(snapshots, 20, Duration::from_secs(30 * 60)),
+                            metric: MetricCategory::Cpu,
+                            direction: TransferDirection::Incoming,
+                            series_slots: vec![Some("app:test".into())],
+                            selected_timestamp: None,
+                            maximum: 100.0,
+                            palette: TRUECOLOR_PALETTE,
+                        },
+                        frame.area(),
+                    );
+                })
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+
+        let before = render(&snapshots);
+        snapshots.push(sample(1_750_000, 99.0));
+        let after = render(&snapshots);
+        let changed_columns = before
+            .content()
+            .iter()
+            .zip(after.content())
+            .enumerate()
+            .filter_map(|(index, (left, right))| {
+                (left != right).then_some(index % usize::from(before.area.width))
+            })
+            .collect::<HashSet<_>>();
+
+        assert_eq!(changed_columns, HashSet::from([20]));
     }
 
     #[test]
@@ -890,9 +1287,14 @@ mod tests {
     }
 
     #[test]
-    fn selected_column_reaches_both_chart_edges() {
-        assert_eq!(selected_column(0, 100, 20), 0);
-        assert_eq!(selected_column(99, 100, 20), 19);
+    fn selected_timestamp_maps_to_its_time_bucket() {
+        let snapshots = (0..360)
+            .map(|index| sample(index * 5_000, 1.0))
+            .collect::<Vec<_>>();
+        let buckets = ChartBuckets::new(&snapshots, 20, Duration::from_secs(30 * 60));
+
+        assert_eq!(buckets.column_for_timestamp(0), Some(0));
+        assert_eq!(buckets.column_for_timestamp(1_795_000), Some(19));
     }
 
     #[test]
@@ -902,13 +1304,15 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
+                let buckets = ChartBuckets::new(&snapshots, 18, Duration::from_secs(10));
                 frame.render_widget(
                     StackedAreaChart {
-                        snapshots: &snapshots,
+                        buckets,
                         metric: MetricCategory::Cpu,
                         direction: TransferDirection::Incoming,
-                        top_count: 7,
-                        selected_index: Some(5),
+                        series_slots: vec![Some("app:test".into())],
+                        selected_timestamp: Some(5),
+                        maximum: 1.0,
                         palette: TRUECOLOR_PALETTE,
                     },
                     frame.area(),
@@ -916,8 +1320,8 @@ mod tests {
             })
             .unwrap();
 
-        let plot_width = 18;
-        let cursor_x = 1 + selected_column(5, snapshots.len(), plot_width);
+        let buckets = ChartBuckets::new(&snapshots, 18, Duration::from_secs(10));
+        let cursor_x = 1 + buckets.column_for_timestamp(5).unwrap();
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(cursor_x as u16, 0)].symbol(), "▼");
         assert!(matches!(
@@ -932,6 +1336,7 @@ mod tests {
         let mut app = App::new(Config::default());
         app.snapshots = (0..10).map(|index| sample(index, 1.0)).collect();
         app.chart_area = Rect::new(5, 4, 10, 8);
+        app.chart_source_indices = (0..10).map(Some).collect();
 
         handle_event(
             &mut app,
@@ -944,6 +1349,114 @@ mod tests {
         );
 
         assert_eq!(app.hovered_index, Some(5));
+    }
+
+    #[test]
+    fn keyboard_history_moves_between_rendered_time_buckets() {
+        let mut app = App::new(Config::default());
+        app.snapshots = (0..15).map(|index| sample(index, 1.0)).collect();
+        app.chart_source_indices = vec![Some(4), Some(9), Some(14)];
+
+        move_hover(&mut app, -1);
+        assert_eq!(app.hovered_index, Some(9));
+        assert_eq!(app.selected_snapshot().unwrap().timestamp_unix_ms, 9);
+
+        move_hover(&mut app, 1);
+        assert_eq!(app.hovered_index, Some(14));
+    }
+
+    #[test]
+    fn series_slots_survive_ranking_changes() {
+        let mut app = App::new(Config::default());
+        app.config.display.top_applications = 2;
+        app.update_series_slots(&["app:a".into(), "app:b".into()]);
+        let original = app.chart_series_slots.clone();
+
+        app.update_series_slots(&["app:b".into(), "app:a".into()]);
+        assert_eq!(app.chart_series_slots, original);
+
+        let b_slot = app
+            .chart_series_slots
+            .iter()
+            .position(|slot| slot.as_deref() == Some("app:b"))
+            .unwrap();
+        app.update_series_slots(&["app:b".into(), "app:c".into()]);
+        assert_eq!(app.chart_series_slots[b_slot].as_deref(), Some("app:b"));
+    }
+
+    #[test]
+    fn equal_application_totals_use_identity_as_tiebreaker() {
+        let snapshots = vec![sample_with_applications(
+            1_000,
+            &[("app:b", "B", 1.0), ("app:a", "A", 1.0)],
+        )];
+
+        assert_eq!(
+            top_application_ids(
+                &snapshots,
+                MetricCategory::Cpu,
+                TransferDirection::Incoming,
+                2,
+            ),
+            vec!["app:a", "app:b"]
+        );
+    }
+
+    #[test]
+    fn series_preserve_the_total_value_of_each_column() {
+        let snapshots = vec![sample_with_applications(
+            1_000,
+            &[("app:a", "A", 2.0), ("app:b", "B", 3.0)],
+        )];
+        let buckets = ChartBuckets::new(&snapshots, 1, Duration::from_secs(1));
+        let series = build_series(
+            &buckets.columns,
+            MetricCategory::Cpu,
+            TransferDirection::Incoming,
+            &[Some("app:a".into())],
+            TRUECOLOR_PALETTE.len(),
+        );
+
+        assert_eq!(series.iter().map(|item| item.values[0]).sum::<f64>(), 5.0);
+    }
+
+    #[test]
+    fn axis_grows_immediately_and_shrinks_after_stable_samples() {
+        let mut app = App::new(Config::default());
+        app.snapshots = vec![sample(1_000, 9.0)];
+        assert_eq!(app.update_axis_maximum(9.0), 10.0);
+
+        app.snapshots.push(sample(2_000, 11.0));
+        assert_eq!(app.update_axis_maximum(11.0), 12.5);
+
+        for timestamp in 3..(3 + AXIS_SHRINK_SAMPLES) {
+            app.snapshots
+                .push(sample(i64::from(timestamp) * 1_000, 4.0));
+            let maximum = app.update_axis_maximum(4.0);
+            if timestamp < 2 + AXIS_SHRINK_SAMPLES {
+                assert_eq!(maximum, 12.5);
+            }
+        }
+        assert_eq!(app.chart_axis_maximum, Some(10.0));
+    }
+
+    #[test]
+    fn axis_threshold_growth_does_not_double_the_chart_scale() {
+        let mut app = App::new(Config::default());
+        app.snapshots = vec![sample(1_000, 95.0)];
+        assert_eq!(app.update_axis_maximum(95.0), 100.0);
+
+        app.snapshots.push(sample(2_000, 96.0));
+        assert_eq!(app.update_axis_maximum(96.0), 125.0);
+    }
+
+    #[test]
+    fn nice_axis_uses_fine_grained_steps() {
+        assert_eq!(nice_upper_bound(1.1), 1.25);
+        assert_eq!(nice_upper_bound(2.1), 2.5);
+        assert_eq!(nice_upper_bound(5.1), 6.0);
+        assert_eq!(nice_upper_bound(51.0), 60.0);
+        assert_eq!(previous_nice_step(100.0), 80.0);
     }
 
     #[test]
